@@ -38,9 +38,14 @@ export default function LoginPage() {
     setError(""); setBusy(true);
     const supabase = createClient();
     if (tab === "up") {
-      const expected = process.env.NEXT_PUBLIC_PILOT_INVITE_CODE || "";
-      if (expected && code.trim() !== expected) {
-        setError("Invalid pilot invite code.");
+      const checkRes = await fetch("/api/invites/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: code.trim() }),
+      });
+      if (!checkRes.ok) {
+        const err = await checkRes.json().catch(() => ({}));
+        setError(err.message || "Invalid invite code");
         setBusy(false);
         return;
       }
@@ -53,6 +58,11 @@ export default function LoginPage() {
       const { data } = await supabase.auth.getSession();
       if (data.session) {
         setAuthed(true);
+        try {
+          await apiRedeemInvite(code.trim());
+        } catch {
+          // Ignore; user can redeem manually
+        }
         router.push("/products");
         router.refresh();
         return;

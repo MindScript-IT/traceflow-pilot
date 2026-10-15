@@ -1,7 +1,9 @@
 "use client";
 import { motion, useReducedMotion } from "motion/react";
+import { useTranslations } from "next-intl";
 
 export function ReadinessRing({ percent, size = 120 }: { percent: number; size?: number }) {
+  const t = useTranslations("console.readiness");
   const reduce = useReducedMotion();
   const r = (size - 12) / 2;
   const c = 2 * Math.PI * r;
@@ -26,7 +28,7 @@ export function ReadinessRing({ percent, size = 120 }: { percent: number; size?:
       </svg>
       <div className="absolute text-center">
         <div className="font-display text-3xl font-semibold tabular-nums">{percent}<span className="text-lg">%</span></div>
-        <div className="text-[11px] uppercase tracking-[0.14em] text-muted">ready</div>
+        <div className="text-[11px] uppercase tracking-[0.14em] text-muted">{t("ready")}</div>
       </div>
     </div>
   );

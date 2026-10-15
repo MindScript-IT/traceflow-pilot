@@ -2,12 +2,14 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Building2, FileText, Plus } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useRequest } from "@/components/RequestWorkspace";
 import { UploadDropzone } from "@/components/UploadDropzone";
 import { apiAuthed, supabaseBrowser } from "@/lib/api";
 
 /** Stage 02 — load sources, extraction proposes values for review. */
 export function StageStructure() {
+  const t = useTranslations("console.requests.stageStructure");
   const { data, reload, requestId } = useRequest();
   const { dossier } = data;
   const [busy, setBusy] = useState(false);
@@ -37,7 +39,7 @@ export function StageStructure() {
         });
         if (res.ok) ok += 1;
       }
-      setNotice(`${ok} document(s) stored — structuring runs in the background; values appear below as they land.`);
+      setNotice(t("storedNotice", { count: ok }));
       await reload();
     } finally {
       setBusy(false);
@@ -54,7 +56,7 @@ export function StageStructure() {
       });
       await reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Link failed");
+      setError(err instanceof Error ? err.message : t("linkFailed"));
     }
   }
 
@@ -73,10 +75,10 @@ export function StageStructure() {
       });
       const fresh = await apiAuthed("/api/suppliers");
       setSuppliers(fresh);
-      setNotice(`“${name}” added as supplier and linked to the document.`);
+      setNotice(t("supplierAdded", { name }));
       await reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Add failed");
+      setError(err instanceof Error ? err.message : t("addFailed"));
     } finally {
       setLinking(null);
     }
@@ -91,11 +93,11 @@ export function StageStructure() {
   return (
     <div className="space-y-4">
       <section className="animate-rise rounded-xl2 border border-line bg-white/70 p-6 shadow-card">
-        <h2 className="font-display text-lg font-semibold">Sources</h2>
+        <h2 className="font-display text-lg font-semibold">{t("sourcesTitle")}</h2>
         <p className="mt-1 text-[13px] text-inksoft">
           {dossier.documents.length === 0
-            ? "No documents loaded yet. The information exists across BOMs, declarations, certificates — load them here."
-            : `${dossier.documents.length} document${dossier.documents.length > 1 ? "s" : ""} loaded. Every quotation later links back to its source.`}
+            ? t("noDocs")
+            : t("docsLoaded", { count: dossier.documents.length })}
         </p>
         <ul className="mt-3 space-y-3">
           {dossier.documents.map((d: any) => (
@@ -104,16 +106,16 @@ export function StageStructure() {
                 <FileText size={14} className="shrink-0 text-muted" />
                 <span className="truncate">{d.filename}</span>
                 {(d.extraction_status === "pending" || d.extraction_status === "extracting") && (
-                  <span className="shrink-0 rounded-full bg-amber-wash px-2 py-0.5 text-[11px] font-bold text-amber">extracting…</span>
+                  <span className="shrink-0 rounded-full bg-amber-wash px-2 py-0.5 text-[11px] font-bold text-amber">{t("extracting")}</span>
                 )}
                 {d.extraction_status === "done" && (
                   <span className="shrink-0 rounded-full bg-moss-wash px-2 py-0.5 text-[11px] font-bold text-moss-deep">
-                    {d.extracted_count} value{d.extracted_count === 1 ? "" : "s"}
+                    {t("valuesCount", { count: d.extracted_count })}
                   </span>
                 )}
                 {d.extraction_status === "failed" && (
                   <span className="shrink-0 rounded-full bg-brick-wash px-2 py-0.5 text-[11px] font-bold text-brick" title={d.extraction_error ?? ""}>
-                    failed{d.extraction_error ? ` · ${d.extraction_error}` : ""}
+                    {t("failedStatus")}{d.extraction_error ? ` · ${d.extraction_error}` : ""}
                   </span>
                 )}
                 <span className="ml-auto shrink-0 text-xs text-muted">{new Date(d.uploaded_at).toLocaleDateString()}</span>
@@ -123,17 +125,17 @@ export function StageStructure() {
                 {d.supplier_name ? (
                   <span className="font-semibold">{d.supplier_name}</span>
                 ) : (
-                  <span className="italic text-muted">No supplier linked</span>
+                  <span className="italic text-muted">{t("noSupplierLinked")}</span>
                 )}
                 <select value={d.supplier_id ?? ""} onChange={(e) => void linkDocument(d.id, e.target.value)}
                   className="min-h-[32px] rounded-lg border border-line bg-paper px-2 text-xs outline-none focus:border-ink">
-                  <option value="">Link supplier…</option>
+                  <option value="">{t("linkSupplier")}</option>
                   {suppliers.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>
               {(d.detected_parties ?? []).length > 0 && (
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  <span className="font-mono text-[11px] text-muted">Named in this document:</span>
+                  <span className="font-mono text-[11px] text-muted">{t("namedInDoc")}</span>
                   {d.detected_parties.map((p: any, i: number) => {
                     const known = knownNames.has((p.name || "").toLowerCase());
                     return known ? (
@@ -157,11 +159,11 @@ export function StageStructure() {
         <div className="mt-4 grid gap-3 md:grid-cols-[1fr_220px] md:items-end">
           <div>
             <label className="text-xs font-semibold uppercase tracking-[0.12em] text-muted" htmlFor="up-supplier">
-              Attribute uploads to supplier (optional)
+              {t("attributeUploads")}
             </label>
             <select id="up-supplier" value={uploadSupplier} onChange={(e) => setUploadSupplier(e.target.value)}
               className="mt-2 min-h-[44px] w-full rounded-lg border border-line bg-paper px-3 text-sm outline-none focus:border-ink">
-              <option value="">Detect from document…</option>
+              <option value="">{t("detectFromDoc")}</option>
               {suppliers.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
@@ -172,14 +174,13 @@ export function StageStructure() {
       </section>
 
       <section className="animate-rise rounded-xl2 border border-line bg-white/70 p-6 shadow-card" style={{ animationDelay: "0.05s" }}>
-        <h2 className="font-display text-lg font-semibold">Structure into the requested fields</h2>
+        <h2 className="font-display text-lg font-semibold">{t("structureTitle")}</h2>
         <p className="mt-1 text-[13px] text-inksoft">
-          Real extraction: Claude reads each document against the requested fields and proposes values with
-          locations. Nothing is decided here — every value arrives as a proposal.
+          {t("structureSubtitle")}
         </p>
         {proposed.length === 0 ? (
           <p className="mt-3 rounded-xl bg-parchment/70 p-4 text-sm text-inksoft">
-            No proposals waiting. Load a document above to start structuring.
+            {t("noProposalsWaiting")}
           </p>
         ) : (
           <ul className="mt-3 divide-y divide-dashed divide-line border-t border-dashed border-line">
@@ -193,7 +194,7 @@ export function StageStructure() {
         )}
         <Link href={`/requests/${requestId}/evidence`}
           className="mt-4 inline-flex min-h-[40px] items-center gap-2 rounded-lg bg-ink px-4 text-sm font-semibold text-paper transition-transform duration-150 hover:scale-[1.01]">
-          See the evidence behind each value <ArrowRight size={15} />
+          {t("seeEvidence")} <ArrowRight size={15} />
         </Link>
       </section>
     </div>

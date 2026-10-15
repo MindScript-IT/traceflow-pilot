@@ -1,5 +1,5 @@
 "use client";
-import { useRouter } from "next/navigation";
+import { useLocale } from "next-intl";
 import { Globe, ChevronDown, Check } from "lucide-react";
 import { clsx } from "clsx";
 import { useState, useRef, useEffect } from "react";
@@ -11,17 +11,9 @@ const LOCALES = [
 
 const LOCALE_COOKIE = "tf_locale";
 
-export function LanguageSwitcher() {
-  const router = useRouter();
-  const [locale, setLocale] = useState(() => {
-    if (typeof window === "undefined") return "en";
-    const cookies = document.cookie.split("; ").reduce((acc, cookie) => {
-      const [key, value] = cookie.split("=");
-      acc[key] = value;
-      return acc;
-    }, {} as Record<string, string>);
-    return cookies[LOCALE_COOKIE] || "en";
-  });
+export function LanguageSwitcher({ variant = "light" }: { variant?: "light" | "dark" }) {
+  const locale = useLocale();
+  const dark = variant === "dark";
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -36,10 +28,9 @@ export function LanguageSwitcher() {
   }, []);
 
   const switchLocale = (newLocale: string) => {
-    setLocale(newLocale);
     document.cookie = `${LOCALE_COOKIE}=${newLocale}; path=/; max-age=31536000; SameSite=Lax`;
-    window.location.reload();
     setIsOpen(false);
+    window.location.reload();
   };
 
   const currentLocale = LOCALES.find((l) => l.code === locale) || LOCALES[0];
@@ -48,19 +39,27 @@ export function LanguageSwitcher() {
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="inline-flex items-center gap-2 min-h-[40px] px-3 rounded-xl border border-line bg-white/70 hover:border-ink hover:bg-white transition-all text-sm font-medium"
+        className={clsx(
+          "inline-flex items-center gap-2 min-h-[40px] px-3 rounded-xl border transition-all text-sm font-medium",
+          dark
+            ? "w-full border-paper/15 bg-paper/5 text-paper/80 hover:bg-paper/10 hover:text-paper"
+            : "border-line bg-white/70 hover:border-ink hover:bg-white",
+        )}
         aria-label="Change language"
         aria-expanded={isOpen}
         aria-haspopup="listbox"
       >
-        <Globe size={16} className="text-muted" />
-        <span className="hidden sm:inline">{currentLocale.flag} {currentLocale.name}</span>
-        <span className="sm:hidden">{currentLocale.flag}</span>
-        <ChevronDown size={14} className={clsx("text-muted transition-transform", isOpen && "rotate-180")} />
+        <Globe size={16} className={dark ? "text-paper/60" : "text-muted"} />
+        <span className={dark ? "" : "hidden sm:inline"}>{currentLocale.flag} {currentLocale.name}</span>
+        {!dark && <span className="sm:hidden">{currentLocale.flag}</span>}
+        <ChevronDown size={14} className={clsx(dark ? "ml-auto text-paper/60" : "text-muted", "transition-transform", isOpen && "rotate-180")} />
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-40 rounded-xl border border-line bg-white shadow-lg overflow-hidden z-50 animate-fade-in">
+        <div className={clsx(
+          "absolute w-40 rounded-xl border border-line bg-white text-ink shadow-lg overflow-hidden z-50 animate-fade-in",
+          dark ? "bottom-full left-0 mb-2" : "right-0 mt-2",
+        )}>
           <ul role="listbox" aria-label="Select language">
             {LOCALES.map((l) => (
               <li key={l.code}>

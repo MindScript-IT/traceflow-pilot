@@ -1,9 +1,10 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { BellRing, CheckCheck, Plus } from "lucide-react";
 import { clsx } from "clsx";
 import { apiIntake, apiMarkRead, apiNotifications, apiReadAll } from "@/lib/api";
+import { useLocale, useTranslations } from "next-intl";
 
 type Notif = {
   id: string; type: string; title: string; body: string | null;
@@ -12,6 +13,9 @@ type Notif = {
 };
 
 export default function NotificationsPage() {
+  const t = useTranslations("console.notifications");
+  const locale = useLocale();
+
   const [items, setItems] = useState<Notif[] | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [error, setError] = useState("");
@@ -20,25 +24,25 @@ export default function NotificationsPage() {
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<{ request_id: string; items_count: number } | null>(null);
 
-  const reload = () =>
+  const reload = useCallback(() =>
     apiNotifications(false, 100)
       .then((d) => {
         setItems(d.items);
         setUnreadCount(d.unread_count);
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(e instanceof Error ? e.message : String(e))),
+    []);
 
   useEffect(() => {
     reload();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [reload]);
 
   async function markRead(id: string) {
     try {
       await apiMarkRead(id);
       await reload();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Mark-read failed");
+      setError(e instanceof Error ? e.message : t("markReadFailed"));
     }
   }
 
@@ -47,7 +51,7 @@ export default function NotificationsPage() {
       await apiReadAll();
       await reload();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Read-all failed");
+      setError(e instanceof Error ? e.message : t("readAllFailed"));
     }
   }
 
@@ -62,11 +66,16 @@ export default function NotificationsPage() {
       setForm({ subject: "", from_email: "", body_text: "" });
       await reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Intake failed");
+      setError(err instanceof Error ? err.message : t("intakeFailed"));
     } finally {
       setBusy(false);
     }
   }
+
+  const formatType = (type: string) => {
+    if (type === "request.received") return t("types.requestReceived");
+    return type;
+  };
 
   const inputCls =
     "mt-2 min-h-[44px] w-full rounded-lg border border-line bg-paper px-3.5 text-[15px] outline-none transition-shadow duration-150 placeholder:text-muted/70 focus:border-ink focus:ring-2 focus:ring-ink/15";
@@ -75,22 +84,22 @@ export default function NotificationsPage() {
     <>
       <div className="flex flex-wrap items-end gap-4">
         <div>
-          <p className="font-mono text-xs uppercase tracking-[0.14em] text-muted">Manager inbox</p>
-          <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight">Notifications</h1>
+          <p className="font-mono text-xs uppercase tracking-[0.14em] text-muted">{t("inboxBadge")}</p>
+          <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight">{t("title")}</h1>
         </div>
         <div className="ml-auto flex gap-2">
           <button
             onClick={() => setShowForm((v) => !v)}
             className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-ink px-5 font-semibold text-paper transition-transform duration-150 hover:scale-[1.02] active:scale-[0.98]"
           >
-            <Plus size={17} /> New intake
+            <Plus size={17} /> {t("newIntake")}
           </button>
           {unreadCount > 0 && (
             <button
               onClick={() => void readAll()}
               className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-line bg-white/70 px-5 font-semibold transition-colors hover:bg-parchment/60"
             >
-              <CheckCheck size={17} /> Mark all read
+              <CheckCheck size={17} /> {t("markAllRead")}
             </button>
           )}
         </div>
@@ -100,33 +109,33 @@ export default function NotificationsPage() {
       {showForm && (
         <form onSubmit={submitIntake} className="animate-rise mt-5 grid gap-4 rounded-xl2 border border-line bg-white/70 p-6 shadow-card md:grid-cols-2">
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted md:col-span-2">
-            Paste the client&apos;s email — requirements are extracted verbatim and the manager is notified
+            {t("formSubtitle")}
           </p>
           <div>
-            <label className="text-xs font-semibold uppercase tracking-[0.12em] text-muted" htmlFor="ni-subject">Subject</label>
-            <input id="ni-subject" required placeholder="Product request — Trail Blazer GTX" value={form.subject}
+            <label className="text-xs font-semibold uppercase tracking-[0.12em] text-muted" htmlFor="ni-subject">{t("subject")}</label>
+            <input id="ni-subject" required placeholder={t("subjectPlaceholder")} value={form.subject}
               onChange={(e) => setForm({ ...form, subject: e.target.value })} className={inputCls} />
           </div>
           <div>
-            <label className="text-xs font-semibold uppercase tracking-[0.12em] text-muted" htmlFor="ni-from">From (email)</label>
-            <input id="ni-from" placeholder="buyer@example.com" value={form.from_email}
+            <label className="text-xs font-semibold uppercase tracking-[0.12em] text-muted" htmlFor="ni-from">{t("from")}</label>
+            <input id="ni-from" placeholder={t("fromPlaceholder")} value={form.from_email}
               onChange={(e) => setForm({ ...form, from_email: e.target.value })} className={inputCls} />
           </div>
           <div className="md:col-span-2">
-            <label className="text-xs font-semibold uppercase tracking-[0.12em] text-muted" htmlFor="ni-body">Email body</label>
-            <textarea id="ni-body" required rows={5} placeholder="Paste the full email body here…" value={form.body_text}
+            <label className="text-xs font-semibold uppercase tracking-[0.12em] text-muted" htmlFor="ni-body">{t("body")}</label>
+            <textarea id="ni-body" required rows={5} placeholder={t("bodyPlaceholder")} value={form.body_text}
               onChange={(e) => setForm({ ...form, body_text: e.target.value })}
               className="mt-2 w-full rounded-lg border border-line bg-paper px-3.5 py-3 text-[15px] outline-none transition-shadow duration-150 placeholder:text-muted/70 focus:border-ink focus:ring-2 focus:ring-ink/15" />
           </div>
           <div className="md:col-span-2">
             <button type="submit" disabled={busy} className="inline-flex min-h-[44px] items-center rounded-xl bg-moss px-6 font-semibold text-white transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50">
-              {busy ? "Extracting…" : "Create intake"}
+              {busy ? t("extracting") : t("createIntake")}
             </button>
             {created && (
               <p className="mt-3 text-sm font-medium text-moss-deep">
-                Intake created — {created.items_count} requirement{created.items_count === 1 ? "" : "s"} itemized.{" "}
+                {t("intakeCreated", { count: created.items_count })}{" "}
                 <Link href={`/requests/${created.request_id}/request`} className="underline">
-                  Open request
+                  {t("openRequest")}
                 </Link>
               </p>
             )}
@@ -145,13 +154,15 @@ export default function NotificationsPage() {
               <div className="min-w-0 flex-1">
                 <p className={clsx(!n.read_at && "font-semibold")}>{n.title}</p>
                 {n.body && <p className="mt-1 line-clamp-2 text-[13px] text-inksoft">{n.body}</p>}
-                <p className="mt-1 font-mono text-xs text-muted">
-                  {n.created_at ? new Date(n.created_at).toLocaleString() : ""} · {n.type}
+                <p className="mt-1 flex flex-wrap items-center gap-x-2 font-mono text-xs text-muted">
+                  {n.created_at ? <span>{new Date(n.created_at).toLocaleString(locale === "it" ? "it-IT" : "en-US")}</span> : null}
+                  <span>·</span>
+                  <span>{formatType(n.type)}</span>
                   {n.entity_id && (
                     <>
-                      {" · "}
-                      <Link href={`/requests/${n.entity_id}/request`} className="underline">
-                        Open request
+                      <span>·</span>
+                      <Link href={`/requests/${n.entity_id}/request`} className="underline hover:text-ink">
+                        {t("openRequest")}
                       </Link>
                     </>
                   )}
@@ -162,14 +173,14 @@ export default function NotificationsPage() {
                   onClick={() => void markRead(n.id)}
                   className="inline-flex min-h-[40px] shrink-0 items-center rounded-lg border border-line px-3 text-sm font-semibold transition-colors hover:bg-parchment/60"
                 >
-                  Mark read
+                  {t("markRead")}
                 </button>
               )}
             </li>
           ))}
         </ul>
-        {items?.length === 0 && <p className="px-5 py-8 text-center text-sm text-muted">No notifications yet.</p>}
-        {items === null && !error && <p className="px-5 py-8 text-center text-sm text-muted">Loading…</p>}
+        {items?.length === 0 && <p className="px-5 py-8 text-center text-sm text-muted">{t("empty")}</p>}
+        {items === null && !error && <p className="px-5 py-8 text-center text-sm text-muted">{t("loading")}</p>}
       </div>
     </>
   );

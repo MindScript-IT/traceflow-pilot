@@ -102,7 +102,6 @@ async def extract_full_items_pdf(body: bytes) -> list[dict]:
         resp = await client.messages.create(
             model=settings.anthropic_model,
             max_tokens=12000,
-            temperature=0,
             system=FULL_ITEMS_SYSTEM,
             messages=[
                 {

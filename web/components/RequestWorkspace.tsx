@@ -2,18 +2,20 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { clsx } from "clsx";
+import { useTranslations } from "next-intl";
 import { apiAuthed } from "@/lib/api";
 import { FIELD_GROUPS, groupReadiness } from "@/lib/groups";
 import { ReadinessRing } from "@/components/ReadinessRing";
 
 export const STAGES = [
-  { key: "request", n: "01", label: "Client Request" },
-  { key: "structure", n: "02", label: "Structure" },
-  { key: "evidence", n: "03", label: "Evidence" },
-  { key: "verify", n: "04", label: "Verify" },
-  { key: "gaps", n: "05", label: "Identify Gaps" },
-  { key: "respond", n: "06", label: "Respond" },
+  { key: "request", n: "01" },
+  { key: "structure", n: "02" },
+  { key: "evidence", n: "03" },
+  { key: "verify", n: "04" },
+  { key: "gaps", n: "05" },
+  { key: "respond", n: "06" },
 ] as const;
 
 export type StageKey = (typeof STAGES)[number]["key"];
@@ -28,6 +30,7 @@ const RequestCtx = createContext<Ctx>({ data: null, reload: async () => {}, requ
 export const useRequest = () => useContext(RequestCtx);
 
 export function RequestWorkspace({ children }: { children: React.ReactNode }) {
+  const t = useTranslations("console.requests");
   const params = useParams();
   const pathname = usePathname();
   const requestId = params.id as string;
@@ -47,6 +50,15 @@ export function RequestWorkspace({ children }: { children: React.ReactNode }) {
   if (!data) {
     return (
       <>
+        <div className="mb-5">
+          <Link
+            href="/requests"
+            className="group inline-flex items-center gap-2 text-sm font-medium text-muted transition-colors hover:text-ink"
+          >
+            <ArrowLeft size={16} className="transition-transform duration-150 group-hover:-translate-x-1" />
+            <span>{t("backToRequests")}</span>
+          </Link>
+        </div>
         <div className="animate-pulse space-y-3">
           <div className="h-10 w-2/3 rounded-lg bg-parchment" />
           <div className="h-64 rounded-xl2 bg-parchment" />
@@ -62,6 +74,16 @@ export function RequestWorkspace({ children }: { children: React.ReactNode }) {
 
   return (
     <RequestCtx.Provider value={{ data, reload, requestId }}>
+      <div className="mb-5">
+        <Link
+          href="/requests"
+          className="group inline-flex items-center gap-2 text-sm font-medium text-muted transition-colors hover:text-ink"
+        >
+          <ArrowLeft size={16} className="transition-transform duration-150 group-hover:-translate-x-1" />
+          <span>{t("backToRequests")}</span>
+        </Link>
+      </div>
+
       <p className="font-mono text-xs uppercase tracking-[0.14em] text-muted">
         {request.requester_org ?? "Client request"} → {dossier.product.name}
       </p>
@@ -87,7 +109,7 @@ export function RequestWorkspace({ children }: { children: React.ReactNode }) {
                 )}
               >
                 <span className="font-mono text-[11px] opacity-70">{s.n}</span>
-                {s.label}
+                {t(`stages.${s.key}`)}
               </Link>
             </li>
           );
@@ -102,8 +124,11 @@ export function RequestWorkspace({ children }: { children: React.ReactNode }) {
               <ReadinessRing percent={dossier.readiness_percent} size={110} />
             </div>
             <p className="mt-2 text-center text-[13px] text-inksoft">
-              <strong className="tabular-nums">{dossier.counts.verified}/{dossier.total_required}</strong> verified ·{" "}
-              <strong className="tabular-nums">{dossier.actions_required}</strong> open
+              {t("workspace.verifiedCounts", {
+                verified: dossier.counts.verified,
+                total: dossier.total_required,
+                open: dossier.actions_required,
+              })}
             </p>
             <div className="ledger-rule my-4" />
             <ul className="space-y-2.5">
@@ -113,7 +138,7 @@ export function RequestWorkspace({ children }: { children: React.ReactNode }) {
                 return (
                   <li key={g.key}>
                     <div className="flex items-baseline justify-between text-[13px]">
-                      <span className="font-medium">{g.title}</span>
+                      <span className="font-medium">{t(`groups.${g.key}`)}</span>
                       <span className="font-mono text-xs text-muted tabular-nums">{r.verified}/{r.total}</span>
                     </div>
                     <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-parchment">
@@ -125,17 +150,17 @@ export function RequestWorkspace({ children }: { children: React.ReactNode }) {
             </ul>
             <div className="ledger-rule my-4" />
             <p className="text-[13px] text-inksoft">
-              Supplier follow-up:{" "}
+              {t("workspace.supplierFollowup")}
               {openFollowups === 0 ? (
-                <span className="font-medium text-muted">none prepared</span>
+                <span className="font-medium text-muted">{t("workspace.nonePrepared")}</span>
               ) : (
                 <Link href={`/requests/${requestId}/gaps`} className="font-semibold text-amber hover:underline">
-                  {openFollowups} open
+                  {t("workspace.openFollowups", { count: openFollowups })}
                 </Link>
               )}
             </p>
             <p className="mt-1 font-mono text-[11px] text-muted">
-              {request.status === "responded" ? "● responded" : "○ draft — not ready to send"}
+              {request.status === "responded" ? t("workspace.responded") : t("workspace.draft")}
             </p>
           </div>
         </aside>

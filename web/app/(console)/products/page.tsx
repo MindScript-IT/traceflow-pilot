@@ -9,6 +9,7 @@ import { clsx } from "clsx";
 import { apiAuthed } from "@/lib/api";
 import { Donut } from "@/components/Donut";
 import { StateBadge } from "@/components/StateBadge";
+import { useTranslations } from "next-intl";
 
 type Product = {
   id: string; sku: string; name: string; category: string; manufacturer_name: string;
@@ -27,10 +28,10 @@ const ACTION_TONE: Record<string, string> = {
 };
 
 const STEPS = [
-  { Icon: FileUp, title: "Upload evidence", text: "BOMs, declarations, certificates — PDF, XLSX, CSV. Extraction cites the exact page or cell." },
-  { Icon: FileSearch, title: "Review values", text: "Accept, correct, or reject every proposal. Conflicts resolve explicitly, nothing auto-verifies." },
-  { Icon: Rocket, title: "Publish passport", text: "All 7 fields verified unlocks publishing. The public page shows verified values only." },
-];
+  { Icon: FileUp, key: "upload" },
+  { Icon: FileSearch, key: "review" },
+  { Icon: Rocket, key: "publish" },
+] as const;
 
 function Stat({ label, value, sub, Icon, tone }: { label: string; value: string; sub: string; Icon: typeof Rocket; tone: string }) {
   return (
@@ -56,6 +57,7 @@ function overallState(p: Product): string {
 }
 
 export default function Dashboard() {
+  const t = useTranslations("console.dashboard");
   const [products, setProducts] = useState<Product[] | null>(null);
   const [error, setError] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -90,7 +92,7 @@ export default function Dashboard() {
       });
       window.location.href = `/products/${out.id}`;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Create failed");
+      setError(err instanceof Error ? err.message : t("createFailed"));
       setBusy(false);
     }
   }
@@ -99,14 +101,14 @@ export default function Dashboard() {
     <>
       <div className="flex flex-wrap items-end gap-4">
         <div>
-          <p className="font-mono text-xs uppercase tracking-[0.14em] text-muted">Command center</p>
-          <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight">Passport pipeline</h1>
+          <p className="font-mono text-xs uppercase tracking-[0.14em] text-muted">{t("commandCenter")}</p>
+          <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight">{t("title")}</h1>
         </div>
         <button
           onClick={() => setShowForm((v) => !v)}
           className="ml-auto inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-ink px-5 font-semibold text-paper transition-transform duration-150 hover:scale-[1.02] active:scale-[0.98]"
         >
-          <PackagePlus size={17} /> New dossier
+          <PackagePlus size={17} /> {t("newDossier")}
         </button>
       </div>
 
@@ -119,15 +121,14 @@ export default function Dashboard() {
         if (dups.length === 0) return null;
         return (
           <p className="mt-4 rounded-xl border border-amber/40 bg-amber-wash p-3.5 text-sm font-medium text-amber">
-            Duplicate SKU{dups.length > 1 ? "s" : ""}: {dups.join(", ")} — one dossier per product SKU.
-            Merge or rename so evidence lands on the right product.
+            {t("duplicateSkus", { count: dups.length, skus: dups.join(", ") })}
           </p>
         );
       })()}
 
       {showForm && (
         <form onSubmit={create} className="animate-rise mt-5 grid gap-4 rounded-xl2 border border-line bg-white/70 p-6 shadow-card md:grid-cols-3">
-          {([["name", "Product name", "Valencia Runner"], ["sku", "SKU", "VR-2026-BRN"], ["manufacturer_name", "Manufacturer", "Pilot Footwear SARL"]] as const).map(([k, label, hint]) => (
+          {([["name", t("productName"), "Valencia Runner"], ["sku", t("sku"), "VR-2026-BRN"], ["manufacturer_name", t("manufacturer"), "Pilot Footwear SARL"]] as const).map(([k, label, hint]) => (
             <div key={k}>
               <label className="text-xs font-semibold uppercase tracking-[0.12em] text-muted" htmlFor={k}>{label}</label>
               <input id={k} required placeholder={hint} value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })}
@@ -136,34 +137,33 @@ export default function Dashboard() {
           ))}
           <div className="flex items-end md:col-span-3">
             <button type="submit" disabled={busy} className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-moss px-6 font-semibold text-white transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50">
-              Create & open dossier <ArrowRight size={16} />
+              {t("createOpen")} <ArrowRight size={16} />
             </button>
           </div>
         </form>
       )}
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat label="Dossiers" value={String(products?.length ?? "—")} sub="products in the pipeline" Icon={ShieldCheck} tone="bg-parchment text-ink" />
-        <Stat label="Avg readiness" value={products ? `${agg.avg}%` : "—"} sub="verified + half-proposed weight" Icon={BadgeCheck} tone="bg-moss-wash text-moss-deep" />
-        <Stat label="Open actions" value={products ? String(agg.actions) : "—"} sub="missing + conflicting fields" Icon={TriangleAlert} tone="bg-brick-wash text-brick" />
-        <Stat label="Published" value={products ? String(agg.published) : "—"} sub="public passports live" Icon={Rocket} tone="bg-amber-wash text-amber" />
+        <Stat label={t("stats.dossiers")} value={String(products?.length ?? "—")} sub={t("stats.dossiersSub")} Icon={ShieldCheck} tone="bg-parchment text-ink" />
+        <Stat label={t("stats.readiness")} value={products ? `${agg.avg}%` : "—"} sub={t("stats.readinessSub")} Icon={BadgeCheck} tone="bg-moss-wash text-moss-deep" />
+        <Stat label={t("stats.openActions")} value={products ? String(agg.actions) : "—"} sub={t("stats.openActionsSub")} Icon={TriangleAlert} tone="bg-brick-wash text-brick" />
+        <Stat label={t("stats.published")} value={products ? String(agg.published) : "—"} sub={t("stats.publishedSub")} Icon={Rocket} tone="bg-amber-wash text-amber" />
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_360px]">
         <section className="animate-rise rounded-xl2 border border-line bg-white/70 shadow-card" style={{ animationDelay: "0.05s" }}>
           <div className="flex items-center border-b border-line px-5 py-4">
-            <h2 className="font-display text-lg font-semibold">Dossiers</h2>
+            <h2 className="font-display text-lg font-semibold">{t("dossiersTitle")}</h2>
             <span className="ml-2 rounded-full bg-parchment px-2 py-0.5 font-mono text-xs text-muted">{products?.length ?? 0}</span>
           </div>
           <p className="border-b border-line bg-parchment/50 px-5 py-2.5 text-[13px] text-inksoft">
-            One dossier per product SKU — attach every supplier&apos;s documents for that product here.
-            Unrelated products get their own dossier.
+            {t("dossiersHint")}
           </p>
-          {products === null && <p className="px-5 py-8 text-sm text-muted">Loading pipeline…</p>}
+          {products === null && <p className="px-5 py-8 text-sm text-muted">{t("loading")}</p>}
           {products?.length === 0 && (
             <div className="px-5 py-10 text-center">
-              <p className="font-display text-xl font-semibold">No dossiers yet</p>
-              <p className="mx-auto mt-2 max-w-sm text-sm text-inksoft">Register your first product above, upload its supplier documents, and work the review queue to 100%.</p>
+              <p className="font-display text-xl font-semibold">{t("emptyTitle")}</p>
+              <p className="mx-auto mt-2 max-w-sm text-sm text-inksoft">{t("emptyText")}</p>
             </div>
           )}
           <ul className="divide-y divide-line">
@@ -174,13 +174,13 @@ export default function Dashboard() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="truncate font-semibold">{p.name}</span>
                       <StateBadge state={overallState(p)} />
-                      {p.passport_published && <span className="font-mono text-[11px] uppercase tracking-wider text-moss-deep">live</span>}
+                      {p.passport_published && <span className="font-mono text-[11px] uppercase tracking-wider text-moss-deep">{t("live")}</span>}
                     </div>
                     <p className="mt-0.5 font-mono text-xs text-muted">{p.sku} · {p.manufacturer_name}</p>
                     {p.next_action && (
                       <p className="mt-1.5">
                         <span className={clsx("rounded-full px-2.5 py-0.5 text-xs font-semibold", ACTION_TONE[p.next_action.key] ?? "bg-parchment text-inksoft")}>
-                          Next: {p.next_action.label}
+                          {t("next", { label: p.next_action.label })}
                         </span>
                       </p>
                     )}
@@ -190,7 +190,7 @@ export default function Dashboard() {
                   </div>
                   <div className="shrink-0 text-right">
                     <p className="font-display text-2xl font-semibold tabular-nums">{p.readiness_percent}<span className="text-sm">%</span></p>
-                    <p className="text-xs text-muted tabular-nums">{p.actions_required} actions</p>
+                    <p className="text-xs text-muted tabular-nums">{t("actionsCount", { count: p.actions_required })}</p>
                   </div>
                   <ArrowUpRight size={18} className="shrink-0 text-muted transition-transform duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-ink" />
                 </Link>
@@ -201,19 +201,19 @@ export default function Dashboard() {
 
         <div className="space-y-4">
           <section className="animate-rise rounded-xl2 border border-line bg-white/70 p-5 shadow-card" style={{ animationDelay: "0.1s" }}>
-            <h2 className="font-display text-lg font-semibold">Verification mix</h2>
-            <p className="text-[13px] text-inksoft">Field states across all dossiers.</p>
+            <h2 className="font-display text-lg font-semibold">{t("mixTitle")}</h2>
+            <p className="text-[13px] text-inksoft">{t("mixSub")}</p>
             <div className="mt-4"><Donut counts={agg.counts} /></div>
           </section>
           <section className="animate-rise rounded-xl2 border border-ink/15 bg-ink p-5 text-paper shadow-card" style={{ animationDelay: "0.15s" }}>
-            <h2 className="font-display text-lg font-semibold">How a dossier flows</h2>
+            <h2 className="font-display text-lg font-semibold">{t("flowTitle")}</h2>
             <ol className="mt-3 space-y-3">
               {STEPS.map((s, i) => (
-                <li key={s.title} className="flex gap-3">
+                <li key={s.key} className="flex gap-3">
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-paper/15"><s.Icon size={16} /></span>
                   <div>
-                    <p className="text-sm font-semibold">0{i + 1} · {s.title}</p>
-                    <p className="text-[13px] leading-relaxed text-paper/70">{s.text}</p>
+                    <p className="text-sm font-semibold">0{i + 1} · {t(`steps.${s.key}.title`)}</p>
+                    <p className="text-[13px] leading-relaxed text-paper/70">{t(`steps.${s.key}.text`)}</p>
                   </div>
                 </li>
               ))}

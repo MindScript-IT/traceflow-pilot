@@ -2,18 +2,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { clsx } from "clsx";
+import { useTranslations } from "next-intl";
 import { apiAuthed } from "@/lib/api";
 import { useRequest } from "@/components/RequestWorkspace";
 
-/** Stage 05 — gaps are part of the answer. Draft a targeted supplier follow-up (never sent). */
-const GAP_DEFS = [
-  { key: "missing", title: "Missing evidence", text: "No document in the pack covers this field." },
-  { key: "out_of_date", title: "Out of date", text: "A document exists, but its own validity has lapsed." },
-  { key: "conflicting", title: "Sources disagree", text: "Two documents give different values for the same field." },
-  { key: "rejected_unreplaced", title: "Rejected by reviewer", text: "A proposal was turned down and has not been replaced." },
-] as const;
+const GAP_KEYS = ["missing", "out_of_date", "conflicting", "rejected_unreplaced"] as const;
 
 export function StageGaps() {
+  const t = useTranslations("console.requests.stageGaps");
   const { data, reload } = useRequest();
   const { dossier, gaps, followups, request } = data;
   const [suppliers, setSuppliers] = useState<any[]>([]);
@@ -43,8 +39,8 @@ export function StageGaps() {
 
   async function saveDraft() {
     setError(""); setNotice(""); setCopied(false);
-    if (!supplierId) { setError("Choose the supplier to ask."); return; }
-    if (picked.length === 0) { setError("Add at least one open item."); return; }
+    if (!supplierId) { setError(t("chooseSupplier")); return; }
+    if (picked.length === 0) { setError(t("addAtLeastOne")); return; }
     const sup = suppliers.find((s) => s.id === supplierId);
     try {
       await apiAuthed(`/api/suppliers/${supplierId}/followups`, {
@@ -58,11 +54,11 @@ export function StageGaps() {
           items: picked,
         }),
       });
-      setNotice("Follow-up drafted. Copy it out — nothing is sent by this app.");
+      setNotice(t("followupDrafted"));
       setPicked([]);
       await reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
+      setError(err instanceof Error ? err.message : t("saveFailed"));
     }
   }
 
@@ -83,25 +79,24 @@ export function StageGaps() {
   return (
     <div className="space-y-4">
       <section className="animate-rise rounded-xl2 border border-line bg-white/70 p-6 shadow-card">
-        <h2 className="font-display text-lg font-semibold">Response readiness</h2>
+        <h2 className="font-display text-lg font-semibold">{t("responseReadiness")}</h2>
         <p className="mt-1 font-display text-4xl font-semibold tabular-nums">
           {dossier.readiness_percent}<span className="text-xl">%</span>
           <span className="ml-2 align-middle font-sans text-sm font-normal text-muted">
-            {dossier.counts.verified}/{dossier.total_required} verified
+            {t("verifiedCount", { verified: dossier.counts.verified, total: dossier.total_required })}
           </span>
         </p>
         <p className="mt-1 max-w-xl text-[13px] text-inksoft">
-          Verified required fields ÷ total required fields. Not a compliance score. Anything not
-          accepted stays visible as an outstanding item — never dropped to look finished.
+          {t("readinessFormula")}
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          {GAP_DEFS.map((g) => (
-            <div key={g.key} className="rounded-xl border border-line bg-paper p-4">
-              <p className="font-display text-2xl font-semibold tabular-nums">{gaps[g.key].length}</p>
-              <p className="text-sm font-semibold">{g.title}</p>
-              <p className="text-[13px] text-inksoft">{g.text}</p>
-              {gaps[g.key].length > 0 && (
-                <p className="mt-1 font-mono text-xs text-muted">{gaps[g.key].join(", ")}</p>
+          {GAP_KEYS.map((k) => (
+            <div key={k} className="rounded-xl border border-line bg-paper p-4">
+              <p className="font-display text-2xl font-semibold tabular-nums">{gaps[k]?.length ?? 0}</p>
+              <p className="text-sm font-semibold">{t(`gaps.${k}Title` as any)}</p>
+              <p className="text-[13px] text-inksoft">{t(`gaps.${k}Text` as any)}</p>
+              {(gaps[k]?.length ?? 0) > 0 && (
+                <p className="mt-1 font-mono text-xs text-muted">{gaps[k].join(", ")}</p>
               )}
             </div>
           ))}
@@ -109,26 +104,26 @@ export function StageGaps() {
       </section>
 
       <section className="animate-rise rounded-xl2 border border-line bg-white/70 p-6 shadow-card" style={{ animationDelay: "0.05s" }}>
-        <h2 className="font-display text-lg font-semibold">Supplier follow-up</h2>
+        <h2 className="font-display text-lg font-semibold">{t("draftFollowup")}</h2>
         <p className="mt-1 text-[13px] text-inksoft">
-          A targeted request to one supplier, for the items only they can answer. Drafted here, copied out by hand — never sent.
+          {t("followupSubtitle")}
         </p>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div>
-            <label className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">To (supplier)</label>
+            <label className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">{t("toSupplier")}</label>
             <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)}
               className="mt-2 min-h-[44px] w-full rounded-lg border border-line bg-paper px-3 text-[15px] outline-none focus:border-ink">
-              <option value="">Select supplier…</option>
+              <option value="">{t("selectSupplier")}</option>
               {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}{s.external_code ? ` — ${s.external_code}` : ""}</option>)}
             </select>
           </div>
           <div>
-            <label className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Subject</label>
+            <label className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">{t("subject")}</label>
             <input value={subject} onChange={(e) => setSubject(e.target.value)}
               className="mt-2 min-h-[44px] w-full rounded-lg border border-line bg-paper px-3.5 text-[15px] outline-none focus:border-ink focus:ring-2 focus:ring-ink/15" />
           </div>
         </div>
-        <p className="mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-muted">Requested items</p>
+        <p className="mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-muted">{t("openItems")}</p>
         <ul className="mt-2 space-y-2">
           {openFields.map((f: any) => (
             <li key={f.field_key}>
@@ -148,11 +143,11 @@ export function StageGaps() {
               </button>
             </li>
           ))}
-          {openFields.length === 0 && <li className="text-sm text-inksoft">No open items — nothing to ask for.</li>}
+          {openFields.length === 0 && <li className="text-sm text-inksoft">{t("noOpenItems")}</li>}
         </ul>
         <button onClick={() => void saveDraft()}
           className="mt-4 inline-flex min-h-[44px] items-center rounded-xl bg-ink px-6 font-semibold text-paper transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99]">
-          Save follow-up draft
+          {t("saveDraft")}
         </button>
         {(error || notice) && (
           <p className={clsx("mt-3 text-sm font-medium", error ? "text-brick" : "text-moss-deep")}>{error || notice}</p>
@@ -160,15 +155,15 @@ export function StageGaps() {
 
         {followups.length > 0 && (
           <div className="mt-5 border-t border-line pt-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Prepared follow-ups</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">{t("preparedFollowups")}</p>
             <ul className="mt-2 space-y-2">
               {followups.map((f: any) => (
                 <li key={f.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-parchment/70 px-3.5 py-2.5 text-sm">
                   <span className="font-medium">{f.subject || "(no subject)"}</span>
-                  <span className="font-mono text-xs text-muted">{f.status} · {(f.items || []).length} items</span>
+                  <span className="font-mono text-xs text-muted">{f.status} · {t("itemsCount", { count: (f.items || []).length })}</span>
                   <button onClick={() => void copyDraft(f)}
                     className="ml-auto inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-line bg-paper px-3 text-[13px] font-semibold transition-all hover:scale-[1.02] hover:border-ink">
-                    <Copy size={13} /> {copied ? "Copied" : "Copy"}
+                    <Copy size={13} /> {copied ? t("copied") : t("copy")}
                   </button>
                 </li>
               ))}
