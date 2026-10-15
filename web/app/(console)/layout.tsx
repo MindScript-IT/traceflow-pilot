@@ -1,12 +1,10 @@
-import { Sidebar } from "@/components/Sidebar";
+import { SidebarProvider } from "@/components/SidebarContext";
+import { ConsoleShell } from "@/components/ConsoleShell";
 
 export default function ConsoleLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen">
-      <Sidebar />
-      <div className="pl-64">
-        <div className="mx-auto max-w-6xl px-8 py-8">{children}</div>
-      </div>
-    </div>
+    <SidebarProvider>
+      <ConsoleShell>{children}</ConsoleShell>
+    </SidebarProvider>
   );
 }

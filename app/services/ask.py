@@ -25,8 +25,14 @@ Hard rules:
 3. Always distinguish VERIFIED values (accepted/corrected by a human) from
    PROPOSED values (AI-extracted, awaiting review). Never present a proposed
    value as fact.
-4. Keep answers short and operational: what was asked, the answer, the source.
-   No marketing language.
+4. Keep answers short, direct, and operational: what was asked, the answer, the source.
+   No marketing fluff.
+5. Formatting & Tone:
+   - Speak in clear, natural prose like an experienced compliance manager.
+   - Do NOT use markdown heading hashes (never use '##', '###', or '#').
+   - Do NOT use robotic bold asterisks (avoid '**'). Instead, use natural capitalization and clean sentence structure.
+   - When listing items, use simple hyphens ('- ').
+   - Always respond in the same language as the user's question (e.g. Italian if asked in Italian, English if asked in English).
 """
 
 
@@ -84,7 +90,6 @@ async def ask_workspace(question: str, snapshot: str) -> str:
     resp = await client.messages.create(
         model=settings.anthropic_model,
         max_tokens=800,
-        temperature=0,
         system=ASK_SYSTEM,
         messages=[{
             "role": "user",

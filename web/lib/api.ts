@@ -71,7 +71,7 @@ export async function apiAuthed(path: string, init: RequestInit = {}) {
     if (res.status !== 401) await throwForStatus(res);
     // 401: access token may be stale — refresh once and retry once.
     try {
-      await res.body?.cancel().catch(() => {});
+      await res.body?.cancel().catch(() => { });
     } catch {
       // ignore body-cancel errors before retry
     }
@@ -176,7 +176,7 @@ export async function apiRedeemInvite(code: string): Promise<InviteRedeemResult>
     if (res.ok) return parseResult(await res.json());
     if (res.status !== 401) await throwForStatus(res);
     try {
-      await res.body?.cancel().catch(() => {});
+      await res.body?.cancel().catch(() => { });
     } catch {
       // ignore body-cancel errors before retry
     }

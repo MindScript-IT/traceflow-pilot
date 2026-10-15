@@ -203,7 +203,6 @@ async def _claude_json_messages(messages: list[dict]) -> list[dict]:
     resp = await client.messages.create(
         model=settings.anthropic_model,
         max_tokens=2000,
-        temperature=0,
         system=SYSTEM_PROMPT,
         messages=messages,
     )
@@ -276,7 +275,6 @@ async def extract_parties_pdf(pdf_bytes: bytes) -> list[dict]:
         resp = await client.messages.create(
             model=settings.anthropic_model,
             max_tokens=400,
-            temperature=0,
             system=PARTIES_SYSTEM,
             messages=[{
                 "role": "user",

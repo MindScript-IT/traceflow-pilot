@@ -3,11 +3,13 @@ import { useEffect, useState } from "react";
 import { KeyRound, PenLine } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { loadSignature, saveSignature, type EmailSignature } from "@/lib/fieldMeta";
+import { useTranslations } from "next-intl";
 
 /** Change password for the signed-in reviewer. Pilot note: Supabase lets an
  * authenticated user set a new password directly; forgotten-password email
  * recovery is intentionally out of scope (admin resets via Dashboard). */
 export default function AccountPage() {
+  const t = useTranslations("console.account");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [msg, setMsg] = useState("");
@@ -18,11 +20,11 @@ export default function AccountPage() {
     e.preventDefault();
     setMsg(""); setIsError(false);
     if (password.length < 8) {
-      setIsError(true); setMsg("Password must be at least 8 characters.");
+      setIsError(true); setMsg(t("minChars"));
       return;
     }
     if (password !== confirm) {
-      setIsError(true); setMsg("Passwords do not match.");
+      setIsError(true); setMsg(t("passwordMismatch"));
       return;
     }
     setBusy(true);
@@ -33,24 +35,24 @@ export default function AccountPage() {
       return;
     }
     setPassword(""); setConfirm("");
-    setMsg("Password changed.");
+    setMsg(t("passwordChanged"));
   }
 
   return (
     <>
       <div className="animate-rise max-w-xl">
-        <p className="font-mono text-xs uppercase tracking-[0.14em] text-muted">Reviewer</p>
-        <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight">Account</h1>
+        <p className="font-mono text-xs uppercase tracking-[0.14em] text-muted">{t("headerBadge")}</p>
+        <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight">{t("title")}</h1>
         <form onSubmit={change} className="mt-6 space-y-4 rounded-xl2 border border-line bg-white/70 p-6 shadow-card">
           <div className="flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-parchment text-ink">
               <KeyRound size={19} />
             </span>
-            <h2 className="font-display text-lg font-semibold">Change password</h2>
+            <h2 className="font-display text-lg font-semibold">{t("changePassword")}</h2>
           </div>
           <div>
             <label className="text-xs font-semibold uppercase tracking-[0.12em] text-muted" htmlFor="np">
-              New password
+              {t("newPassword")}
             </label>
             <input
               id="np"
@@ -64,7 +66,7 @@ export default function AccountPage() {
           </div>
           <div>
             <label className="text-xs font-semibold uppercase tracking-[0.12em] text-muted" htmlFor="cf">
-              Confirm new password
+              {t("confirmNewPassword")}
             </label>
             <input
               id="cf"
@@ -81,7 +83,7 @@ export default function AccountPage() {
             disabled={busy}
             className="min-h-[44px] rounded-xl bg-ink px-6 font-semibold text-paper transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50"
           >
-            {busy ? "Saving…" : "Set new password"}
+            {busy ? t("saving") : t("setPassword")}
           </button>
           {msg && <p className={`text-sm font-medium ${isError ? "text-brick" : "text-moss-deep"}`}>{msg}</p>}
         </form>
@@ -92,6 +94,7 @@ export default function AccountPage() {
 }
 
 function SignatureForm() {
+  const t = useTranslations("console.account");
   const [sig, setSig] = useState<EmailSignature>({ name: "", title: "", company: "", phone: "" });
   const [saved, setSaved] = useState(false);
 
@@ -101,6 +104,13 @@ function SignatureForm() {
 
   const inputCls =
     "mt-2 min-h-[44px] w-full rounded-lg border border-line bg-paper px-3.5 text-[15px] outline-none transition-shadow duration-150 placeholder:text-muted/70 focus:border-ink focus:ring-2 focus:ring-ink/15";
+
+  const fields = [
+    { key: "name" as const, label: t("fullName"), hint: t("fullNamePlaceholder") },
+    { key: "title" as const, label: t("jobTitle"), hint: t("jobTitlePlaceholder") },
+    { key: "company" as const, label: t("company"), hint: t("companyPlaceholder") },
+    { key: "phone" as const, label: t("phone"), hint: t("phonePlaceholder") },
+  ];
 
   return (
     <form
@@ -112,20 +122,20 @@ function SignatureForm() {
           <PenLine size={19} />
         </span>
         <div>
-          <h2 className="font-display text-lg font-semibold">Email signature</h2>
-          <p className="text-[13px] text-inksoft">Appended to every supplier email you draft. Stored in this browser.</p>
+          <h2 className="font-display text-lg font-semibold">{t("signatureTitle")}</h2>
+          <p className="text-[13px] text-inksoft">{t("signatureSubtitle")}</p>
         </div>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
-        {([["name", "Full name", "Marco Rossi"], ["title", "Title", "Product Data, Nova Footwear"], ["company", "Company", "Nova Footwear"], ["phone", "Phone", "+39 …"]] as const).map(([k, label, hint]) => (
-          <div key={k}>
-            <label className="text-xs font-semibold uppercase tracking-[0.12em] text-muted" htmlFor={`sig-${k}`}>{label}</label>
-            <input id={`sig-${k}`} placeholder={hint} value={sig[k]} onChange={(e) => setSig({ ...sig, [k]: e.target.value })} className={inputCls} />
+        {fields.map(({ key, label, hint }) => (
+          <div key={key}>
+            <label className="text-xs font-semibold uppercase tracking-[0.12em] text-muted" htmlFor={`sig-${key}`}>{label}</label>
+            <input id={`sig-${key}`} placeholder={hint} value={sig[key]} onChange={(e) => setSig({ ...sig, [key]: e.target.value })} className={inputCls} />
           </div>
         ))}
       </div>
       <button type="submit" className="min-h-[44px] rounded-xl bg-ink px-6 font-semibold text-paper transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99]">
-        {saved ? "Saved" : "Save signature"}
+        {saved ? t("signatureSaved") : t("saveSignature")}
       </button>
     </form>
   );

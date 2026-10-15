@@ -2,8 +2,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Building2, Plus } from "lucide-react";
 import { apiAuthed } from "@/lib/api";
+import { useTranslations } from "next-intl";
 
 export default function SuppliersPage() {
+  const t = useTranslations("console.suppliers");
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [error, setError] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -15,9 +17,9 @@ export default function SuppliersPage() {
     try {
       setSuppliers(await apiAuthed("/api/suppliers"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Load failed");
+      setError(e instanceof Error ? e.message : t("loadFailed"));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -33,7 +35,7 @@ export default function SuppliersPage() {
       setName(""); setCode(""); setShowForm(false);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Create failed");
+      setError(err instanceof Error ? err.message : t("createFailed"));
     } finally {
       setBusy(false);
     }
@@ -41,27 +43,27 @@ export default function SuppliersPage() {
 
   return (
     <>
-      <p className="font-mono text-xs uppercase tracking-[0.14em] text-muted">Evidence ledger</p>
-      <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight">Suppliers</h1>
+      <p className="font-mono text-xs uppercase tracking-[0.14em] text-muted">{t("headerBadge")}</p>
+      <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight">{t("title")}</h1>
       <p className="mt-2 max-w-xl text-sm text-inksoft">
-        Health = share of a supplier&apos;s evidence values a human has verified. Low health means their documents need chasing — draft a follow-up, sending stays manual in this pilot.
+        {t("description")}
       </p>
       <button onClick={() => setShowForm((v) => !v)}
         className="mt-4 inline-flex min-h-[40px] items-center gap-2 rounded-xl bg-ink px-4 text-sm font-semibold text-paper transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99]">
-        <Plus size={16} /> Add supplier
+        <Plus size={16} /> {t("addSupplier")}
       </button>
       {showForm && (
         <form onSubmit={create} className="animate-rise mt-3 flex max-w-xl flex-wrap items-end gap-3 rounded-xl2 border border-line bg-white/70 p-4 shadow-card">
-          <label className="flex-1 text-xs font-semibold text-muted">Name
-            <input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Gommus Soc. Coop."
+          <label className="flex-1 text-xs font-semibold text-muted">{t("name")}
+            <input required value={name} onChange={(e) => setName(e.target.value)} placeholder={t("namePlaceholder")}
               className="mt-1 block min-h-[40px] w-full rounded-lg border border-line bg-paper px-3 text-sm font-normal text-ink outline-none focus:border-ink" />
           </label>
-          <label className="text-xs font-semibold text-muted">External code
-            <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="L-18"
+          <label className="text-xs font-semibold text-muted">{t("externalCode")}
+            <input value={code} onChange={(e) => setCode(e.target.value)} placeholder={t("codePlaceholder")}
               className="mt-1 block min-h-[40px] w-32 rounded-lg border border-line bg-paper px-3 text-sm font-normal text-ink outline-none focus:border-ink" />
           </label>
           <button type="submit" disabled={busy} className="min-h-[40px] rounded-lg bg-moss px-5 text-sm font-semibold text-white disabled:opacity-50">
-            {busy ? "Saving…" : "Save"}
+            {busy ? t("saving") : t("save")}
           </button>
         </form>
       )}
@@ -85,7 +87,7 @@ export default function SuppliersPage() {
                 <span className="block font-display text-2xl font-semibold tabular-nums">
                   {s.evidence_health_percent ?? "—"}{s.evidence_health_percent != null && <span className="text-sm">%</span>}
                 </span>
-                <span className="block text-[11px] uppercase tracking-[0.12em] text-muted">health</span>
+                <span className="block text-[11px] uppercase tracking-[0.12em] text-muted">{t("health")}</span>
               </span>
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-parchment">
@@ -95,14 +97,14 @@ export default function SuppliersPage() {
               />
             </div>
             <p className="mt-3 text-sm text-inksoft">
-              Open requests: <strong className="tabular-nums">{s.open_requests}</strong>
+              {t("openRequests")} <strong className="tabular-nums">{s.open_requests}</strong>
             </p>
           </div>
         ))}
       </div>
       {suppliers.length === 0 && !error && (
         <p className="mt-6 rounded-xl2 border border-dashed border-muted/50 bg-parchment/50 p-6 text-sm text-muted">
-          No suppliers yet — they appear once uploaded documents are linked to them.
+          {t("empty")}
         </p>
       )}
     </>

@@ -2,13 +2,15 @@
 import { useState } from "react";
 import { BadgeCheck, Copy, Download, Rocket } from "lucide-react";
 import { clsx } from "clsx";
+import { useTranslations } from "next-intl";
 import { apiAuthed, apiPublicPassport } from "@/lib/api";
 import { useRequest } from "@/components/RequestWorkspace";
 import { StateBadge } from "@/components/StateBadge";
 
 /** Stage 06 — the client response: letter preview, copy/download, DPP preview, publish. */
 export function StageRespond() {
-  const { data, reload, requestId } = useRequest();
+  const t = useTranslations("console.requests.stageRespond");
+  const { data, reload } = useRequest();
   const { dossier, request } = data;
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -64,10 +66,10 @@ export function StageRespond() {
     setError(""); setNotice("");
     try {
       await apiAuthed(`/api/products/${dossier.product.id}/publish`, { method: "POST" });
-      setNotice("Passport published — the public page is live.");
+      setNotice(t("publishedNotice"));
       await reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Publish failed");
+      setError(err instanceof Error ? err.message : t("publishFailed"));
     }
   }
 
@@ -85,22 +87,22 @@ export function StageRespond() {
       <section className="animate-rise overflow-hidden rounded-xl2 border border-line bg-white/70 shadow-card">
         <div className="flex flex-wrap items-center gap-3 border-b border-line px-6 py-4">
           <h2 className="font-display text-lg font-semibold">
-            Client response — {ready ? "ready" : "draft, incomplete"}
+            {t("clientResponse", { status: ready ? t("ready") : t("draftIncomplete") })}
           </h2>
           <span className="ml-auto font-display text-2xl font-semibold tabular-nums">
             {dossier.readiness_percent}<span className="text-sm">%</span>
           </span>
         </div>
         <div className="px-6 py-4 text-sm">
-          <p><strong>For:</strong> {request.requester_name}{request.requester_org ? `, ${request.requester_org}` : ""}</p>
-          <p className="mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-muted">Answers with sources</p>
+          <p><strong>{t("for")}</strong> {request.requester_name}{request.requester_org ? `, ${request.requester_org}` : ""}</p>
+          <p className="mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-muted">{t("answersWithSources")}</p>
           <table className="mt-2 w-full text-left">
             <thead>
               <tr className="border-b border-line text-xs uppercase tracking-[0.1em] text-muted">
-                <th className="py-2 pr-3 font-semibold">Field</th>
-                <th className="py-2 pr-3 font-semibold">Answer</th>
-                <th className="py-2 pr-3 font-semibold">Source / location</th>
-                <th className="py-2 font-semibold">Verification</th>
+                <th className="py-2 pr-3 font-semibold">{t("thField")}</th>
+                <th className="py-2 pr-3 font-semibold">{t("thAnswer")}</th>
+                <th className="py-2 pr-3 font-semibold">{t("thSource")}</th>
+                <th className="py-2 font-semibold">{t("thVerification")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-dashed divide-line">
@@ -110,7 +112,7 @@ export function StageRespond() {
                 return (
                   <tr key={f.field_key}>
                     <td className="py-2 pr-3 font-medium">{f.label}</td>
-                    <td className="py-2 pr-3">{v ? <>{v.value}{v.unit ? <span className="text-muted"> {v.unit}</span> : null}</> : <em className="text-muted">Not provided</em>}</td>
+                    <td className="py-2 pr-3">{v ? <>{v.value}{v.unit ? <span className="text-muted"> {v.unit}</span> : null}</> : <em className="text-muted">{t("notProvided")}</em>}</td>
                     <td className="py-2 pr-3 font-mono text-xs">{doc ? `${doc.filename} / ${v.location ?? "?"}` : "—"}</td>
                     <td className="py-2"><StateBadge state={f.state} /></td>
                   </tr>
@@ -120,29 +122,29 @@ export function StageRespond() {
           </table>
           {outstanding.length > 0 && (
             <p className="mt-3 rounded-xl bg-amber-wash p-3 text-[13px] font-medium text-amber">
-              {outstanding.length} items still without accepted evidence — this draft is not ready to send.
+              {t("outstandingWarning", { count: outstanding.length })}
             </p>
           )}
         </div>
         <div className="flex flex-wrap gap-2 border-t border-line px-6 py-4">
           <button onClick={() => void copy()}
             className="inline-flex min-h-[40px] items-center gap-2 rounded-lg bg-ink px-4 text-sm font-semibold text-paper transition-transform hover:scale-[1.01]">
-            <Copy size={15} /> {copied ? "Copied" : "Copy response"}
+            <Copy size={15} /> {copied ? t("copied") : t("copyResponse")}
           </button>
           <button onClick={download}
             className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-line px-4 text-sm font-semibold transition-colors hover:border-ink">
-            <Download size={15} /> Download .txt
+            <Download size={15} /> {t("downloadTxt")}
           </button>
-          <span className="ml-auto self-center font-mono text-[11px] text-muted">Local preview — not sent</span>
+          <span className="ml-auto self-center font-mono text-[11px] text-muted">{t("localPreview")}</span>
         </div>
       </section>
 
       <section className="animate-rise rounded-xl2 border border-line bg-white/70 p-6 shadow-card" style={{ animationDelay: "0.05s" }}>
-        <h2 className="font-display text-lg font-semibold">DPP preview</h2>
+        <h2 className="font-display text-lg font-semibold">{t("dppPreview")}</h2>
         {!dppTried ? (
           <button onClick={() => void loadDpp()}
             className="mt-3 inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-line px-4 text-sm font-semibold transition-colors hover:border-ink">
-            <BadgeCheck size={15} /> Load public passport preview
+            <BadgeCheck size={15} /> {t("loadDppPreview")}
           </button>
         ) : dpp ? (
           <dl className="mt-3 divide-y divide-dashed divide-line border-t border-dashed border-line">
@@ -154,18 +156,18 @@ export function StageRespond() {
             ))}
           </dl>
         ) : (
-          <p className="mt-3 text-sm text-inksoft">Not published yet — publish first, then the public page renders here.</p>
+          <p className="mt-3 text-sm text-inksoft">{t("notPublishedYet")}</p>
         )}
         <div className="ledger-rule my-4" />
         {!dossier.product.passport_published ? (
           <button onClick={() => void publish()}
             className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-ink px-6 font-semibold text-paper transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99]">
-            <Rocket size={16} /> Publish passport
+            <Rocket size={16} /> {t("publishPassport")}
           </button>
         ) : (
           <a href={`/passport/${dossier.product.public_slug}`}
             className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-moss px-6 font-semibold text-white">
-            <BadgeCheck size={16} /> Open public passport
+            <BadgeCheck size={16} /> {t("openPublicPassport")}
           </a>
         )}
         {(error || notice) && (

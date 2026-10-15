@@ -1,5 +1,6 @@
 "use client";
 import { useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { FileUp, Loader2 } from "lucide-react";
 import { clsx } from "clsx";
 
@@ -7,6 +8,7 @@ const ACCEPT = ".pdf,.xlsx,.csv";
 
 /** Ledger-styled dropzone. Multi-file; rejects unknown types client-side before upload. */
 export function UploadDropzone({ onFiles, busy }: { onFiles: (fs: File[]) => void; busy: boolean }) {
+  const t = useTranslations("console.upload");
   const input = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
   const [rejected, setRejected] = useState("");
@@ -15,7 +17,7 @@ export function UploadDropzone({ onFiles, busy }: { onFiles: (fs: File[]) => voi
     if (files.length === 0) return;
     const bad = files.filter((f) => !/\.(pdf|xlsx|csv)$/i.test(f.name));
     const good = files.filter((f) => /\.(pdf|xlsx|csv)$/i.test(f.name));
-    setRejected(bad.length > 0 ? `${bad.map((f) => `"${f.name}"`).join(", ")} not accepted — PDF, XLSX or CSV only.` : "");
+    setRejected(bad.length > 0 ? t("rejected", { names: bad.map((f) => `"${f.name}"`).join(", ") }) : "");
     if (good.length > 0) onFiles(good);
   }
   return (
@@ -37,9 +39,9 @@ export function UploadDropzone({ onFiles, busy }: { onFiles: (fs: File[]) => voi
         </span>
         <span>
           <span className="block text-sm font-semibold">
-            {busy ? "Extracting evidence…" : "Drop source documents, or click to browse"}
+            {busy ? t("extracting") : t("drop")}
           </span>
-          <span className="block font-mono text-xs text-muted">BOM · supplier declaration · certificate — PDF, XLSX, CSV · multi-select</span>
+          <span className="block font-mono text-xs text-muted">{t("hint")}</span>
         </span>
       </button>
       <input
