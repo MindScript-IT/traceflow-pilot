@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { clsx } from "clsx";
 import { Fingerprint } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
-import { apiRedeemInvite, type InviteRedeemResult } from "@/lib/api";
+import { apiCheckInvite, apiRedeemInvite, type InviteRedeemResult } from "@/lib/api";
 
 /** Reviewer auth: email + password, self-service.
  * Signup is gated by a pilot invite code (NEXT_PUBLIC_PILOT_INVITE_CODE).
@@ -38,14 +38,10 @@ export default function LoginPage() {
     setError(""); setBusy(true);
     const supabase = createClient();
     if (tab === "up") {
-      const checkRes = await fetch("/api/invites/check", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: code.trim() }),
-      });
-      if (!checkRes.ok) {
-        const err = await checkRes.json().catch(() => ({}));
-        setError(err.message || "Invalid invite code");
+      try {
+        await apiCheckInvite(code.trim());
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Invalid invite code");
         setBusy(false);
         return;
       }

@@ -140,7 +140,8 @@ def test_pdf_location_page_n_enforced():
         ]
     ]
     out = validate_item_locations(items, ".pdf")
-    assert [i["location"] for i in out] == ["Page 3", "Page 12", None, None, None, None, None]
+    # Case and the common 'p.' abbreviation are normalized, not discarded.
+    assert [i["location"] for i in out] == ["Page 3", "Page 12", "Page 3", "Page 3", None, None, None]
 
 
 def test_unknown_ext_leaves_locations_untouched():
@@ -267,7 +268,7 @@ async def test_public_unpublished_slug_404(monkeypatch):
 async def test_public_published_no_values_empty_fields(monkeypatch):
     async def _handler(sql, params):
         if "FROM products" in sql:
-            return _FakeCursor(row=("pid-1", "Boot", "footwear"))
+            return _FakeCursor(row=("pid-1", "Boot", "SKU-1", "Acme", "footwear", None))
         return _FakeCursor(rows=[])
 
     async def _gp():
@@ -275,7 +276,14 @@ async def test_public_published_no_values_empty_fields(monkeypatch):
 
     monkeypatch.setattr(public_mod, "get_pool", _gp)
     res = await public_mod.public_passport("live-slug")
-    assert res == {"product_name": "Boot", "fields": []}
+    assert res == {
+        "product_name": "Boot",
+        "sku": "SKU-1",
+        "manufacturer_name": "Acme",
+        "category": "footwear",
+        "published_at": None,
+        "fields": [],
+    }
 
 
 @pytest.mark.asyncio

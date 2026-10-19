@@ -34,5 +34,5 @@ RUN test -d .next && ls -la .next
 EXPOSE 3000
 # BusyBox wget (preinstalled on alpine) is the healthcheck client.
 HEALTHCHECK --interval=15s --timeout=5s --retries=10 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/ || exit 1
 CMD ["sh", "-c", "npx next start -H 0.0.0.0 -p 3000"]

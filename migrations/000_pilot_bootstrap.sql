@@ -118,13 +118,10 @@ ON CONFLICT (id) DO NOTHING;
 -- ---- 4. App role: insert-only audit_log enforced at grant level ----
 -- SECURITY: set the password via psql variable, never commit a real one.
 --   psql -v app_password="$DB_APP_PASSWORD" -f migrations/000_pilot_bootstrap.sql
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'traceflow_app') THEN
-    CREATE ROLE traceflow_app WITH LOGIN PASSWORD :'app_password';
-  END IF;
-END
-$$;
+-- psql expands :'app_password' in normal SQL (NOT inside a DO body), so use
+-- \gexec to create the role with the variable safely quoted.
+SELECT format('CREATE ROLE traceflow_app WITH LOGIN PASSWORD %L', :'app_password')
+WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'traceflow_app')\gexec
 
 GRANT CONNECT ON DATABASE postgres TO traceflow_app;
 GRANT USAGE ON SCHEMA public TO traceflow_app;

@@ -297,7 +297,17 @@
     "location": "Posizione",
     "noVerifiedFields": "Nessun campo verificato ancora.",
     "qrCode": "Codice QR",
-    "downloadPdf": "Scarica PDF"
+    "downloadPdf": "Scarica PDF",
+    "humanVerified": "Passaporto verificato da una persona",
+    "intro": "Ogni valore qui sotto è stato estratto dalle evidenze del fornitore e verificato da un revisore umano. Nulla su questa pagina è proposto dall’AI, dedotto o non verificato.",
+    "noFields": "Nessun campo verificato.",
+    "footer": "TraceFlow AI pilot — evidenze verificate, pubblicate una volta, leggibili da chiunque abbia questo link.",
+    "unavailableTitle": "Passaporto temporaneamente non disponibile",
+    "unavailableBody": "Non è stato possibile caricare questo passaporto. Riprova tra poco.",
+    "notFoundTitle": "Passaporto non trovato",
+    "notFoundBody": "Questo link non è valido oppure il passaporto non è stato pubblicato.",
+    "backToHome": "Vai a TraceFlow",
+    "lastPublished": "Ultima pubblicazione"
   },
   "errors": {
     "sessionMissing": "Sei disconnesso. Accedi di nuovo per continuare.",
@@ -611,6 +621,7 @@
         "storedNotice": "{count} documento/i salvato/i — la strutturazione viene eseguita in background; i valori appariranno sotto mano a mano.",
         "linkFailed": "Collegamento non riuscito",
         "addFailed": "Aggiunta non riuscita",
+        "actionFailed": "Azione non riuscita",
         "supplierAdded": "“{name}” aggiunto come fornitore e collegato al documento.",
         "linkSupplier": "Collega fornitore…",
         "addAsSupplier": "Aggiungi come fornitore",
@@ -625,7 +636,8 @@
         "structureTitle": "Struttura nei campi richiesti",
         "structureSubtitle": "Estrazione reale: Claude legge ciascun documento rispetto ai campi richiesti e propone valori con le relative posizioni. Nulla viene deciso qui — ogni valore arriva come proposta.",
         "noProposalsWaiting": "Nessuna proposta in attesa. Carica un documento qui sopra per iniziare la strutturazione.",
-        "seeEvidence": "Vedi le evidenze dietro ogni valore"
+        "seeEvidence": "Vedi le evidenze dietro ogni valore",
+        "retry": "Riprova"
       },
       "stageEvidence": {
         "evidenceMap": "mappa delle evidenze",

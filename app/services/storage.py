@@ -106,6 +106,16 @@ def upload_to_storage(key: str, body: bytes, content_type: str) -> None:
     client.put_object(Bucket=settings.r2_bucket, Key=key, Body=body, ContentType=content_type)
 
 
+def delete_from_storage(key: str) -> None:
+    """Compensating delete when a DB write after upload fails.
+
+    Without this, a failed documents/extraction_jobs insert leaves an orphan
+    object in the bucket (and the reviewer cannot see or retry it).
+    """
+    client = _r2_client()
+    client.delete_object(Bucket=settings.r2_bucket, Key=key)
+
+
 def new_storage_key(workspace_id: str, product_id: str, filename: str) -> str:
     """Per-company R2 layout: {workspace}/{product}/{uuid}-{basename}.
 

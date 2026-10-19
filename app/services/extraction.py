@@ -15,13 +15,22 @@ Extraction NEVER writes accepted/corrected (spec section 1).
 """
 from __future__ import annotations
 
+import asyncio
 import base64
+import csv
 import io
 import json
 import re
+from datetime import date, datetime, time
 
 import pandas as pd
-from anthropic import AsyncAnthropic
+from anthropic import (
+    APIConnectionError,
+    APIStatusError,
+    AsyncAnthropic,
+    InternalServerError,
+    RateLimitError,
+)
 from openpyxl import load_workbook
 
 from app.config import settings
@@ -49,8 +58,13 @@ class TruncatedList(list):
 TABLE_MAX_ROWS = 500
 PARTIES_CAP = 12
 
-# PDF evidence pins must look like Claude's page reference, e.g. 'Page 3'.
-PDF_LOCATION_RE = re.compile(r"^Page \d+(?:-\d+)?$")
+# PDF evidence pins. The prompt examples use 'Page 3', but models frequently
+# answer 'p. 3' / 'pag. 5'. Normalize instead of silently discarding a valid
+# page reference (that mismatch used to null out correct evidence pins).
+PDF_LOCATION_RE = re.compile(
+    r"^(?:page|p\.?|pag\.?|pagina)\s*(\d+)(?:\s*[-–]\s*(\d+))?$",
+    re.IGNORECASE,
+)
 
 
 def table_locations(table: list[dict] | None) -> set[str]:
@@ -63,11 +77,15 @@ def table_locations(table: list[dict] | None) -> set[str]:
 
 
 def coerce_pdf_location(location: object) -> str | None:
-    """Keep Claude's page reference only when it matches 'Page N'."""
+    """Normalize a page reference to 'Page N' / 'Page N-M'."""
     if not isinstance(location, str):
         return None
     loc = re.sub(r"\s+", " ", location.strip())
-    return loc if PDF_LOCATION_RE.match(loc) else None
+    match = PDF_LOCATION_RE.match(loc)
+    if not match:
+        return None
+    first, last = match.group(1), match.group(2)
+    return f"Page {first}-{last}" if last else f"Page {first}"
 
 
 def coerce_table_location(location: object, valid: set[str]) -> str | None:
@@ -100,6 +118,22 @@ def validate_item_locations(items: list[dict], ext: str, table: list[dict] | Non
     return out
 
 
+def cell_text(value: object) -> str:
+    """Render a spreadsheet cell without corrupting it.
+
+    str() on an openpyxl float turns 12345 into '12345.0' (SKU corruption);
+    dates become '2026-10-19 00:00:00' instead of an ISO date; booleans become
+    'True'/'False'. Keep the printed value's semantics stable.
+    """
+    if isinstance(value, bool):
+        return "TRUE" if value else "FALSE"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    if isinstance(value, (datetime, date, time)):
+        return value.isoformat()
+    return str(value)
+
+
 def xlsx_to_table(xlsx_bytes: bytes, max_rows: int = TABLE_MAX_ROWS) -> TruncatedList:
     """Flatten workbook cells to [{sheet, cell, value}]. Coordinates from openpyxl."""
     wb = load_workbook(filename=io.BytesIO(xlsx_bytes), data_only=True, read_only=True)
@@ -114,14 +148,49 @@ def xlsx_to_table(xlsx_bytes: bytes, max_rows: int = TABLE_MAX_ROWS) -> Truncate
                         # A (max+1)th non-empty cell exists: the cap bit off data.
                         rows.truncated = True
                         return rows
-                    rows.append({"sheet": ws.title, "cell": cell.coordinate, "value": str(cell.value)})
+                    rows.append({"sheet": ws.title, "cell": cell.coordinate, "value": cell_text(cell.value)})
     finally:
         wb.close()
     return rows
 
 
+def decode_csv_text(csv_bytes: bytes) -> str:
+    """Decode UTF-8 (with/without BOM), then Windows-1252, then Latin-1.
+
+    verify_file_content() accepts windows-1252 and latin-1 exports (common
+    from Italian Excel), so extraction must accept them too — otherwise an
+    accepted upload fails later with a UnicodeDecodeError.
+    """
+    for encoding in ("utf-8-sig", "cp1252"):
+        try:
+            return csv_bytes.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return csv_bytes.decode("latin-1")
+
+
 def csv_to_table(csv_bytes: bytes, max_rows: int = TABLE_MAX_ROWS) -> TruncatedList:
-    df = pd.read_csv(io.BytesIO(csv_bytes), dtype=str, keep_default_na=False)
+    text = decode_csv_text(csv_bytes)
+    delimiter = None
+    try:
+        # Italian/European exports commonly use ';'. A comma-only parser turns
+        # the whole row into a single column and loses every field.
+        delimiter = csv.Sniffer().sniff(text[:8192], delimiters=",;\t|").delimiter
+    except csv.Error:
+        delimiter = None
+    try:
+        if delimiter:
+            df = pd.read_csv(
+                io.StringIO(text),
+                dtype=str,
+                keep_default_na=False,
+                sep=delimiter,
+                engine="python",
+            )
+        else:
+            df = pd.read_csv(io.StringIO(text), dtype=str, keep_default_na=False)
+    except pd.errors.EmptyDataError as exc:
+        raise ValueError("csv contains no table data") from exc
     rows = TruncatedList()
     for i, record in enumerate(df.to_dict(orient="records"), start=2):  # row 1 = header
         for col, val in record.items():
@@ -155,12 +224,21 @@ def sanitize_items(items: object, allowed: set[str]) -> list[dict]:
         val = it.get("value")
         if key not in allowed or not isinstance(val, str) or not val.strip():
             continue
-        clean.append({
+        unit = it.get("unit") if isinstance(it.get("unit"), str) else None
+        location = it.get("location") if isinstance(it.get("location"), str) else None
+        row = {
             "field_key": key,
-            "value": val.strip(),
-            "unit": it.get("unit") if isinstance(it.get("unit"), str) else None,
-            "location": it.get("location") if isinstance(it.get("location"), str) else None,
-        })
+            "value": val.strip()[:4000],
+            "unit": unit.strip()[:50] if unit and unit.strip() else None,
+            "location": location.strip()[:200] if location and location.strip() else None,
+        }
+        # The same field can legitimately repeat on several pages, but an exact
+        # duplicate adds no evidence and pollutes the reviewer's queue.
+        if row in clean:
+            continue
+        clean.append(row)
+        if len(clean) >= 100:
+            break
     return clean
 
 
@@ -198,11 +276,39 @@ def parse_extraction_payload(text: str) -> list[dict]:
     return data
 
 
+async def _create_with_retry(client: AsyncAnthropic, **kwargs):
+    """Retry transient Anthropic failures (429/5xx/network) with backoff.
+
+    One rate-limit response used to fail a whole document permanently; the
+    reviewer then had to re-upload. Three attempts cover normal hiccups.
+    """
+    delay = 1.0
+    last: Exception | None = None
+    for attempt in range(3):
+        try:
+            return await client.messages.create(**kwargs)
+        except (RateLimitError, APIConnectionError, InternalServerError) as exc:
+            last = exc
+        except APIStatusError as exc:
+            if exc.status_code not in (429, 500, 502, 503, 504):
+                raise
+            last = exc
+        if attempt < 2:
+            await asyncio.sleep(delay)
+            delay *= 2
+    assert last is not None
+    raise last
+
+
 async def _claude_json_messages(messages: list[dict]) -> list[dict]:
     client = AsyncAnthropic(api_key=settings.anthropic_api_key)
-    resp = await client.messages.create(
+    resp = await _create_with_retry(
+        client,
         model=settings.anthropic_model,
         max_tokens=2000,
+        # Deterministic transcription: extracting the same document twice must
+        # produce the same proposals, not a temperature-random variation.
+        temperature=0,
         system=SYSTEM_PROMPT,
         messages=messages,
     )
@@ -272,9 +378,11 @@ async def extract_parties_pdf(pdf_bytes: bytes) -> list[dict]:
     try:
         client = AsyncAnthropic(api_key=settings.anthropic_api_key)
         b64 = base64.standard_b64encode(pdf_bytes).decode("ascii")
-        resp = await client.messages.create(
+        resp = await _create_with_retry(
+            client,
             model=settings.anthropic_model,
             max_tokens=400,
+            temperature=0,
             system=PARTIES_SYSTEM,
             messages=[{
                 "role": "user",

@@ -5,6 +5,8 @@ through the spec section-4 endpoints so audit rows stay co-transactional.
 """
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends
 
 from app.auth import Caller, ensure_workspace_exists, require_member, require_reviewer
@@ -46,7 +48,7 @@ async def review_queue(caller: Caller = Depends(require_member)):
 async def review_queue_accept_all(caller: Caller = Depends(require_reviewer)):
     """Bulk accept across the whole queue. Same rule as the dossier version:
     only unambiguous (single-candidate) fields; conflicts need explicit choice."""
-    from app.routes.fields import _audit
+    from app.routes.fields import _audit, _reject_verified
 
     pool = await get_pool()
     async with pool.connection() as conn:
@@ -66,13 +68,17 @@ async def review_queue_accept_all(caller: Caller = Depends(require_reviewer)):
                 if len(ids) != 1:
                     skipped += len(ids)
                     continue
+                superseded = await _reject_verified(
+                    conn, caller.workspace_id, pid, fk, caller.user_id
+                )
                 await conn.execute(
                     "UPDATE field_values SET status='accepted', reviewed_by=%s,"
-                    " reviewed_at=now() WHERE id = %s",
-                    (caller.user_id, ids[0]),
+                    " reviewed_at=now(), supersedes_id=%s WHERE id = %s",
+                    (caller.user_id, superseded[0] if superseded else None, ids[0]),
                 )
                 await _audit(conn, caller.workspace_id, caller.user_id,
-                             "field.accepted", ids[0], '{"bulk": true}')
+                             "field.accepted", ids[0],
+                             json.dumps({"bulk": True, "superseded": superseded}))
                 accepted.append(ids[0])
     return {"ok": True, "accepted_count": len(accepted), "skipped_conflicts": skipped}
 

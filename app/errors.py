@@ -138,6 +138,15 @@ def already_decided(action: str, status: str) -> HTTPException:
                "Refresh the page to see its current state.")
 
 
+def unique_conflict() -> HTTPException:
+    """Generic 409 for a DB uniqueness race (e.g. two reviewers accepting the
+    same field, or a rare invite-code collision). The transaction is rolled
+    back by the connection context before the handler runs."""
+    return err(409, "conflict",
+               "That change conflicts with another one that was just saved.",
+               "Refresh the page and try again.")
+
+
 def not_candidate() -> HTTPException:
     return err(409, "not_candidate",
                "That proposal is no longer open for decision.",
@@ -175,6 +184,18 @@ def file_content_problem(kind: str) -> HTTPException:
     message, hint = explanations.get(kind, ("The file content does not match its type.",
                                             "Re-export the document in the stated format and upload again."))
     return err(415, kind, f"We cannot read this file. {message}", hint)
+
+
+def storage_unavailable() -> HTTPException:
+    return err(502, "storage_unavailable",
+               "The file could not be stored.",
+               "Your file was not saved. Check the connection and upload it again in a moment.")
+
+
+def queue_unavailable() -> HTTPException:
+    return err(503, "queue_unavailable",
+               "The document was stored but could not be queued for extraction.",
+               "Nothing was saved. Upload it again in a moment; if it persists, contact the pilot admin.")
 
 
 # ---------------------------------------------------------------------------

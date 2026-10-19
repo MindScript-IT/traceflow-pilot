@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS invites (
 
 CREATE INDEX IF NOT EXISTS idx_invites_workspace ON invites(workspace_id);
 
-GRANT SELECT, INSERT, UPDATE ON client_requests TO CURRENT_USER;
+GRANT SELECT, INSERT, UPDATE, DELETE ON invites TO traceflow_app;
 
 -- Key hygiene (per-company DB decision, 2026-10-07):
 -- The pilot code TF-133C98 was committed to git and is COMPROMISED.

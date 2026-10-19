@@ -49,8 +49,11 @@ async def list_products(conn, workspace_id: str) -> list[dict]:
             "published_at": r[7].isoformat() if r[7] else None,
             "created_at": r[8].isoformat(),
         })
+    defs_cache: dict[str, list[dict]] = {}
     for p in products:
-        defs = await fetch_field_definitions(conn, p["category"])
+        if p["category"] not in defs_cache:
+            defs_cache[p["category"]] = await fetch_field_definitions(conn, p["category"])
+        defs = defs_cache[p["category"]]
         cur = await conn.execute(
             "SELECT field_key, status FROM field_values"
             " WHERE product_id = %s AND workspace_id = %s",
@@ -69,8 +72,10 @@ async def list_products(conn, workspace_id: str) -> list[dict]:
         p.update(compute_readiness(
             counts["verified"], counts["proposed"],
             counts["missing"], counts["conflicting"], total))
+        # BUGFIX: this used `r` (the leftover row from the query loop), so
+        # every dossier inherited the LAST product's published flag.
         p["next_action"] = next_action(
-            counts, total, bool(r[6]),
+            counts, total, p["passport_published"],
             await _has_documents(conn, p["id"], workspace_id),
         )
     return products

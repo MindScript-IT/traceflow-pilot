@@ -55,6 +55,9 @@ services:
     environment:
       DATABASE_URL: postgresql://traceflow_app:${DB_APP_PASSWORD_B}@db:5432/traceflow_b
     command: python scripts/worker.py
+    # The image healthcheck probes the API port; the worker has no HTTP server.
+    healthcheck:
+      disable: true
     restart: unless-stopped
 
   web:
@@ -69,7 +72,10 @@ services:
       api:
         condition: service_started
     environment:
-      DATABASE_URL: postgresql://traceflow_app:${DB_APP_PASSWORD_B}@db:5432/traceflow_b
+      # Server-side SSR calls the API over the compose network. The web
+      # container must NOT receive DATABASE_URL: it has no reason to touch the
+      # database directly (see review finding SEC-01).
+      API_URL_INTERNAL: http://api:8002
     ports:
       - "${WEB_PORT_B:-3002}:3000"
     restart: unless-stopped

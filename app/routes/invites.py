@@ -26,8 +26,12 @@ class RedeemBody(BaseModel):
     code: str
 
 
-async def _lookup_code(conn, code: str):
-    """Shared validity check: returns (invite_row) or raises a friendly error."""
+async def _lookup_code(conn, code: str, *, allow_exhausted: bool = False):
+    """Shared validity check: returns (invite_row) or raises a friendly error.
+
+    allow_exhausted=True lets redeem distinguish "code is full" from "this
+    user is already a member" (re-redeeming must be a no-op, not an error).
+    """
     code_hash = hashlib.sha256(code.strip().encode()).hexdigest()
     cur = await conn.execute(
         "SELECT id, workspace_id, role, expires_at, max_uses, used_count"
@@ -42,7 +46,7 @@ async def _lookup_code(conn, code: str):
     )
     if expires_at is not None and expires_at < datetime.now(timezone.utc):
         raise errors.invite_expired()
-    if max_uses is not None and used_count >= max_uses:
+    if not allow_exhausted and max_uses is not None and used_count >= max_uses:
         raise errors.invite_used()
     return row
 
@@ -75,23 +79,44 @@ async def my_membership(caller: Caller = Depends(get_caller)):
 async def redeem_invite(body: RedeemBody, caller: Caller = Depends(get_caller)):
     pool = await get_pool()
     async with pool.connection() as conn:
-        row = await _lookup_code(conn, body.code or "")
+        row = await _lookup_code(conn, body.code or "", allow_exhausted=True)
         invite_id, workspace_id, role = row[0], str(row[1]), row[2]
+        max_uses, used_count = row[4], row[5]
+        cur = await conn.execute(
+            "SELECT role FROM memberships WHERE user_id = %s AND workspace_id = %s",
+            (caller.user_id, workspace_id),
+        )
+        existing = await cur.fetchone()
+        if existing is not None:
+            # Already joined: never consume another seat.
+            return {"workspace_id": workspace_id, "role": existing[0]}
+        if max_uses is not None and used_count >= max_uses:
+            raise errors.invite_used()
         await ensure_workspace_exists(conn, workspace_id)
         async with conn.transaction():
-            await conn.execute(
+            # Only a NEW membership consumes a seat. Re-redeeming the same code
+            # (or joining a workspace you already belong to) must not burn seats.
+            cur = await conn.execute(
                 "INSERT INTO memberships (user_id, workspace_id, role)"
                 " VALUES (%s, %s, %s)"
-                " ON CONFLICT (user_id, workspace_id) DO UPDATE SET role = EXCLUDED.role",
+                " ON CONFLICT (user_id, workspace_id) DO NOTHING"
+                " RETURNING user_id",
                 (caller.user_id, workspace_id, role),
             )
-            await conn.execute(
-                "UPDATE invites SET used_count = used_count + 1 WHERE id = %s",
-                (invite_id,),
-            )
-            await conn.execute(
-                "INSERT INTO audit_log (workspace_id, actor, action, entity_type, entity_id, detail)"
-                " VALUES (%s, %s, 'invite.redeemed', 'workspace', %s, %s::jsonb)",
-                (workspace_id, caller.user_id, workspace_id, json.dumps({"role": role})),
-            )
+            inserted = await cur.fetchone()
+            if inserted is not None:
+                # Atomic seat cap: concurrent redeems cannot exceed max_uses.
+                cur = await conn.execute(
+                    "UPDATE invites SET used_count = used_count + 1"
+                    " WHERE id = %s AND (max_uses IS NULL OR used_count < max_uses)"
+                    " RETURNING used_count",
+                    (invite_id,),
+                )
+                if await cur.fetchone() is None:
+                    raise errors.invite_used()
+                await conn.execute(
+                    "INSERT INTO audit_log (workspace_id, actor, action, entity_type, entity_id, detail)"
+                    " VALUES (%s, %s, 'invite.redeemed', 'workspace', %s, %s::jsonb)",
+                    (workspace_id, caller.user_id, workspace_id, json.dumps({"role": role})),
+                )
     return {"workspace_id": workspace_id, "role": role}

@@ -5,7 +5,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from psycopg.errors import UniqueViolation
 
+from app import errors
 from app.config import settings
 from app.db import close_pool, get_pool
 from app.routes import ask, documents, fields, founder, intake, invites, notifications, ops, products, public, publish, requests, suppliers
@@ -51,6 +53,13 @@ app.include_router(ops.router)
 app.include_router(suppliers.router)
 app.include_router(publish.router)
 app.include_router(public.router)
+
+
+@app.exception_handler(UniqueViolation)
+async def unique_violation_handler(request, exc):
+    """Turn a uniqueness race into a 409 instead of a 500."""
+    http_exc = errors.unique_conflict()
+    return JSONResponse(status_code=http_exc.status_code, content={"detail": http_exc.detail})
 
 
 @app.get("/health")

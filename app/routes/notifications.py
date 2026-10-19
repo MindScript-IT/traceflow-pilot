@@ -7,6 +7,7 @@ from app import errors
 
 from app.auth import Caller, require_member
 from app.db import get_pool
+from app.schemas import uuid_or_404
 
 router = APIRouter()
 
@@ -51,6 +52,7 @@ async def list_notifications(
 
 @router.post("/api/notifications/{notif_id}/read")
 async def mark_read(notif_id: str, caller: Caller = Depends(require_member)):
+    uuid_or_404(notif_id, "That notification")
     pool = await get_pool()
     async with pool.connection() as conn:
         cur = await conn.execute(
