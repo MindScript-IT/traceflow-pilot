@@ -13,6 +13,10 @@ import { getMiddlewareUser, updateSession } from "./utils/supabase/middleware";
  * Middleware here only verifies authentication, not authorization/invites.
  */
 export async function middleware(req: NextRequest) {
+  // Local demo mode bypasses Supabase entirely (see docs/LOCAL_TESTING.md).
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") {
+    return NextResponse.next();
+  }
   const { pathname } = req.nextUrl;
   if (pathname.startsWith("/_next") || pathname === "/favicon.ico" || pathname.startsWith("/api/")) {
     return NextResponse.next();

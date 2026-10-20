@@ -36,6 +36,8 @@ services:
     environment:
       DATABASE_URL: postgresql://traceflow_app:${DB_APP_PASSWORD:?set DB_APP_PASSWORD in .env}@db:5432/traceflow
       PORT: 8000
+    volumes:
+      - uploads:/srv/app/uploads
     ports:
       - "${PORT:-8000}:8000"
     healthcheck:
@@ -54,7 +56,12 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://traceflow_app:${DB_APP_PASSWORD:?set DB_APP_PASSWORD in .env}@db:5432/traceflow
+    volumes:
+      - uploads:/srv/app/uploads
     command: python scripts/worker.py
+    # The image healthcheck probes the API port; the worker has no HTTP server.
+    healthcheck:
+      disable: true
     restart: unless-stopped
 
   web:
@@ -65,14 +72,19 @@ services:
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-https://xyz.supabase.co}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-change-me}
         NEXT_PUBLIC_PILOT_INVITE_CODE: ${NEXT_PUBLIC_PILOT_INVITE_CODE:-change-me}
+        NEXT_PUBLIC_DEMO_MODE: ${NEXT_PUBLIC_DEMO_MODE:-false}
     depends_on:
       api:
         condition: service_started
     environment:
-      DATABASE_URL: postgresql://traceflow_app:${DB_APP_PASSWORD}@db:5432/traceflow
+      # Server-side SSR calls the API over the compose network. The web
+      # container must NOT receive DATABASE_URL: it has no reason to touch the
+      # database directly (see review finding SEC-01).
+      API_URL_INTERNAL: http://api:8000
     ports:
       - "${WEB_PORT:-3000}:3000"
     restart: unless-stopped
 
 volumes:
   pgdata:
+  uploads:

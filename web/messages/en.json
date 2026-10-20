@@ -297,7 +297,17 @@
     "location": "Location",
     "noVerifiedFields": "No verified fields yet.",
     "qrCode": "QR Code",
-    "downloadPdf": "Download PDF"
+    "downloadPdf": "Download PDF",
+    "humanVerified": "Human-verified passport",
+    "intro": "Every value below was extracted from supplier evidence and verified by a human reviewer. Nothing on this page is AI-proposed, inferred, or unverified.",
+    "noFields": "No verified fields yet.",
+    "footer": "TraceFlow AI pilot — verified evidence, published once, readable by anyone with this link.",
+    "unavailableTitle": "Passport temporarily unavailable",
+    "unavailableBody": "We could not load this passport right now. Please try again in a moment.",
+    "notFoundTitle": "Passport not found",
+    "notFoundBody": "This link is invalid, or the passport has not been published.",
+    "backToHome": "Go to TraceFlow",
+    "lastPublished": "Last published"
   },
   "errors": {
     "sessionMissing": "You are signed out. Sign in again to continue.",
@@ -611,6 +621,7 @@
         "storedNotice": "{count} document(s) stored — structuring runs in the background; values appear below as they land.",
         "linkFailed": "Link failed",
         "addFailed": "Add failed",
+        "actionFailed": "Action failed",
         "supplierAdded": "“{name}” added as supplier and linked to the document.",
         "linkSupplier": "Link supplier…",
         "addAsSupplier": "Add as supplier",
@@ -625,7 +636,8 @@
         "structureTitle": "Structure into the requested fields",
         "structureSubtitle": "Real extraction: Claude reads each document against the requested fields and proposes values with locations. Nothing is decided here — every value arrives as a proposal.",
         "noProposalsWaiting": "No proposals waiting. Load a document above to start structuring.",
-        "seeEvidence": "See the evidence behind each value"
+        "seeEvidence": "See the evidence behind each value",
+        "retry": "Retry"
       },
       "stageEvidence": {
         "evidenceMap": "evidence map",

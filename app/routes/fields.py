@@ -22,6 +22,29 @@ async def _audit(conn, ws: str, actor: str, action: str, entity_id: str, detail:
     )
 
 
+
+
+async def _reject_verified(conn, ws: str, product_id: str, field_key: str, actor: str) -> list[str]:
+    """Reject the currently verified row(s) for a field.
+
+    The product invariant is one accepted/corrected value per field. Historic
+    data could contain duplicates; this collapses them whenever a reviewer
+    makes a new decision, so the public passport cannot emit duplicate labels.
+    """
+    cur = await conn.execute(
+        "SELECT id FROM field_values WHERE product_id = %s AND workspace_id = %s"
+        " AND field_key = %s AND status IN ('accepted','corrected') FOR UPDATE",
+        (product_id, ws, field_key),
+    )
+    ids = [str(r[0]) for r in await cur.fetchall()]
+    for old_id in ids:
+        await conn.execute(
+            "UPDATE field_values SET status='rejected', reviewed_by=%s, reviewed_at=now()"
+            " WHERE id = %s",
+            (actor, old_id),
+        )
+    return ids
+
 @router.post("/api/fields/{field_value_id}/accept")
 async def accept_field(field_value_id: str, caller: Caller = Depends(require_reviewer)):
     uuid_or_404(field_value_id)
@@ -30,20 +53,26 @@ async def accept_field(field_value_id: str, caller: Caller = Depends(require_rev
         await ensure_workspace_exists(conn, caller.workspace_id)
         async with conn.transaction():
             cur = await conn.execute(
-                "SELECT status FROM field_values WHERE id = %s AND workspace_id = %s",
+                "SELECT product_id, field_key, status FROM field_values"
+                " WHERE id = %s AND workspace_id = %s FOR UPDATE",
                 (field_value_id, caller.workspace_id),
             )
             row = await cur.fetchone()
             if row is None:
                 raise errors.not_found("That value")
-            if row[0] != "proposed":
-                raise errors.already_decided("accepted", row[0])
-            await conn.execute(
-                "UPDATE field_values SET status='accepted', reviewed_by=%s, reviewed_at=now()"
-                " WHERE id = %s",
-                (caller.user_id, field_value_id),
+            product_id, field_key, status = row[0], row[1], row[2]
+            if status != "proposed":
+                raise errors.already_decided("accepted", status)
+            superseded = await _reject_verified(
+                conn, caller.workspace_id, product_id, field_key, caller.user_id
             )
-            await _audit(conn, caller.workspace_id, caller.user_id, "field.accepted", field_value_id)
+            await conn.execute(
+                "UPDATE field_values SET status='accepted', reviewed_by=%s, reviewed_at=now(),"
+                " supersedes_id=%s WHERE id = %s",
+                (caller.user_id, superseded[0] if superseded else None, field_value_id),
+            )
+            await _audit(conn, caller.workspace_id, caller.user_id, "field.accepted", field_value_id,
+                         json.dumps({"superseded": superseded}))
     return {"ok": True}
 
 
@@ -90,12 +119,16 @@ async def correct_field(field_value_id: str, body: CorrectBody, caller: Caller =
             product_id, field_key, status, document_id = row[0], row[1], row[2], row[3]
             if status != "proposed":
                 raise errors.already_decided("corrected", status)
+            superseded = await _reject_verified(
+                conn, caller.workspace_id, product_id, field_key, caller.user_id
+            )
             cur = await conn.execute(
                 "INSERT INTO field_values (workspace_id, product_id, field_key, value, unit,"
                 " status, document_id, extracted_by, reviewed_by, reviewed_at, supersedes_id)"
                 " VALUES (%s,%s,%s,%s,%s,'corrected',%s,%s,%s,now(),%s) RETURNING id",
                 (caller.workspace_id, product_id, field_key, body.value, body.unit,
-                 document_id, caller.user_id, caller.user_id, field_value_id),
+                 document_id, caller.user_id, caller.user_id,
+                 superseded[0] if superseded else field_value_id),
             )
             new_id = str((await cur.fetchone())[0])
             await conn.execute(
@@ -103,7 +136,7 @@ async def correct_field(field_value_id: str, body: CorrectBody, caller: Caller =
                 (caller.user_id, field_value_id),
             )
             await _audit(conn, caller.workspace_id, caller.user_id, "field.corrected", new_id,
-                         json.dumps({"supersedes": field_value_id}))
+                         json.dumps({"supersedes": field_value_id, "replaced_verified": superseded}))
     return {"ok": True, "id": new_id}
 
 
@@ -130,9 +163,13 @@ async def resolve_conflict(
                 (product_id, field_key, caller.workspace_id, body.chosen_field_value_id),
             )
             others = [r[0] for r in await cur.fetchall()]
+            superseded = await _reject_verified(
+                conn, caller.workspace_id, product_id, field_key, caller.user_id
+            )
             await conn.execute(
-                "UPDATE field_values SET status='accepted', reviewed_by=%s, reviewed_at=now() WHERE id = %s",
-                (caller.user_id, body.chosen_field_value_id),
+                "UPDATE field_values SET status='accepted', reviewed_by=%s, reviewed_at=now(),"
+                " supersedes_id=%s WHERE id = %s",
+                (caller.user_id, superseded[0] if superseded else None, body.chosen_field_value_id),
             )
             for oid in others:
                 await conn.execute(
@@ -142,7 +179,7 @@ async def resolve_conflict(
             await _audit(
                 conn, caller.workspace_id, caller.user_id, "field.conflict_resolved",
                 body.chosen_field_value_id,
-                json.dumps({"superseded": [str(o) for o in others]}),
+                json.dumps({"superseded": [str(o) for o in others] + superseded}),
             )
     return {"ok": True, "superseded": [str(o) for o in others]}
 
@@ -174,12 +211,16 @@ async def accept_all(product_id: str, caller: Caller = Depends(require_reviewer)
             for fk, ids in per_field.items():
                 if len(ids) != 1:
                     continue
+                superseded = await _reject_verified(
+                    conn, caller.workspace_id, product_id, fk, caller.user_id
+                )
                 await conn.execute(
                     "UPDATE field_values SET status='accepted', reviewed_by=%s,"
-                    " reviewed_at=now() WHERE id = %s",
-                    (caller.user_id, ids[0]),
+                    " reviewed_at=now(), supersedes_id=%s WHERE id = %s",
+                    (caller.user_id, superseded[0] if superseded else None, ids[0]),
                 )
-                await _audit(conn, caller.workspace_id, caller.user_id, "field.accepted", ids[0], json.dumps({"bulk": True}))
+                await _audit(conn, caller.workspace_id, caller.user_id, "field.accepted", ids[0],
+                             json.dumps({"bulk": True, "superseded": superseded}))
                 accepted.append(ids[0])
             skipped = sum(len(ids) for ids in per_field.values()) - len(accepted)
     return {"ok": True, "accepted": accepted, "skipped_conflicts": skipped}

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 
 from app import errors
 
-from app.auth import Caller, require_member
+from app.auth import Caller, ensure_workspace_exists, require_member, require_reviewer
 from app.db import get_pool
 from app.schemas import uuid_or_404
 
@@ -81,3 +81,54 @@ async def list_document_items(document_id: str, caller: Caller = Depends(require
             raise errors.not_found("That document")
         items = await _fetch_items(conn, caller.workspace_id, document_id)
     return {"document_id": document_id, "count": len(items), "items": items}
+
+
+@router.post("/api/documents/{document_id}/retry")
+async def retry_document(document_id: str, caller: Caller = Depends(require_reviewer)):
+    """Re-queue a failed extraction. Keeps verified evidence intact and
+    discards only proposed values/transcriptions from the failed attempt."""
+    uuid_or_404(document_id, "That document")
+    pool = await get_pool()
+    async with pool.connection() as conn:
+        await ensure_workspace_exists(conn, caller.workspace_id)
+        async with conn.transaction():
+            cur = await conn.execute(
+                "SELECT extraction_status FROM documents"
+                " WHERE id = %s AND workspace_id = %s FOR UPDATE",
+                (document_id, caller.workspace_id),
+            )
+            row = await cur.fetchone()
+            if row is None:
+                raise errors.not_found("That document")
+            if row[0] != "failed":
+                raise errors.err(
+                    409,
+                    "not_retryable",
+                    "Only a failed extraction can be retried.",
+                    "Refresh the page to see the document's current state.",
+                )
+            await conn.execute(
+                "DELETE FROM document_items WHERE document_id = %s AND workspace_id = %s",
+                (document_id, caller.workspace_id),
+            )
+            await conn.execute(
+                "DELETE FROM field_values WHERE document_id = %s AND workspace_id = %s"
+                " AND status = 'proposed'",
+                (document_id, caller.workspace_id),
+            )
+            await conn.execute(
+                "UPDATE documents SET extraction_status = 'pending', extracted_count = 0,"
+                " extraction_error = NULL, extraction_truncated = FALSE WHERE id = %s",
+                (document_id,),
+            )
+            await conn.execute(
+                "INSERT INTO extraction_jobs (workspace_id, document_id, status)"
+                " VALUES (%s,%s,'queued')",
+                (caller.workspace_id, document_id),
+            )
+            await conn.execute(
+                "INSERT INTO audit_log (workspace_id, actor, action, entity_type, entity_id)"
+                " VALUES (%s,%s,'document.retried','document',%s)",
+                (caller.workspace_id, caller.user_id, document_id),
+            )
+    return {"ok": True, "status": "pending"}

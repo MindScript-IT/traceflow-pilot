@@ -5,7 +5,7 @@ import { ArrowRight, Building2, FileText, Plus } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useRequest } from "@/components/RequestWorkspace";
 import { UploadDropzone } from "@/components/UploadDropzone";
-import { apiAuthed, supabaseBrowser } from "@/lib/api";
+import { accessToken, apiAuthed } from "@/lib/api";
 
 /** Stage 02 — load sources, extraction proposes values for review. */
 export function StageStructure() {
@@ -26,21 +26,49 @@ export function StageStructure() {
   async function upload(files: File[]) {
     setBusy(true); setError(""); setNotice("");
     try {
-      const { data: s } = await supabaseBrowser().auth.getSession();
+      const token = await accessToken();
       let ok = 0;
+      const failures: string[] = [];
       for (const file of files) {
         const fd = new FormData();
         fd.append("file", file);
         if (uploadSupplier) fd.append("supplier_id", uploadSupplier);
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/products/${dossier.product.id}/documents`, {
           method: "POST",
-          headers: { Authorization: `Bearer ${s.session?.access_token}` },
+          headers: { Authorization: `Bearer ${token}` },
           body: fd,
         });
-        if (res.ok) ok += 1;
+        if (res.ok) {
+          ok += 1;
+        } else {
+          let message = `HTTP ${res.status}`;
+          try {
+            const payload = await res.json();
+            message = payload?.detail?.message || payload?.detail || message;
+          } catch {
+            // keep status fallback
+          }
+          failures.push(`${file.name}: ${typeof message === "string" ? message : `HTTP ${res.status}`}`);
+        }
       }
-      setNotice(t("storedNotice", { count: ok }));
+      if (ok > 0) setNotice(t("storedNotice", { count: ok }));
+      if (failures.length > 0) setError(failures.join(" · "));
       await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("linkFailed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function retryExtraction(docId: string) {
+    setBusy(true); setError(""); setNotice("");
+    try {
+      await apiAuthed(`/api/documents/${docId}/retry`, { method: "POST" });
+      setNotice(t("extracting"));
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("actionFailed"));
     } finally {
       setBusy(false);
     }
@@ -114,9 +142,19 @@ export function StageStructure() {
                   </span>
                 )}
                 {d.extraction_status === "failed" && (
-                  <span className="shrink-0 rounded-full bg-brick-wash px-2 py-0.5 text-[11px] font-bold text-brick" title={d.extraction_error ?? ""}>
-                    {t("failedStatus")}{d.extraction_error ? ` · ${d.extraction_error}` : ""}
-                  </span>
+                  <>
+                    <span className="shrink-0 rounded-full bg-brick-wash px-2 py-0.5 text-[11px] font-bold text-brick" title={d.extraction_error ?? ""}>
+                      {t("failedStatus")}{d.extraction_error ? ` · ${d.extraction_error}` : ""}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void retryExtraction(d.id)}
+                      className="shrink-0 rounded-full border border-line bg-paper px-2.5 py-0.5 text-[11px] font-bold text-ink transition-colors hover:bg-parchment disabled:opacity-50"
+                    >
+                      {t("retry")}
+                    </button>
+                  </>
                 )}
                 <span className="ml-auto shrink-0 text-xs text-muted">{new Date(d.uploaded_at).toLocaleDateString()}</span>
               </div>

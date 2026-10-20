@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ArrowLeft, Check, Copy, ExternalLink, FileText, Pencil, Rocket, Send, X } from "lucide-react";
 import { clsx } from "clsx";
 import { useTranslations } from "next-intl";
-import { apiAuthed, supabaseBrowser } from "@/lib/api";
+import { accessToken, apiAuthed } from "@/lib/api";
 import { FIELD_DESCRIPTIONS, draftSupplierEmail, formatSignature, loadSignature } from "@/lib/fieldMeta";
 import { EmailDraftModal } from "@/components/EmailDraftModal";
 import { DocumentItems } from "@/components/DocumentItems";
@@ -117,7 +117,7 @@ export default function ProductDetail({ params }: { params: { id: string } }) {
   async function uploadFiles(files: File[]) {
     setUploading(true); setError(""); setNotice("");
     try {
-      const { data } = await supabaseBrowser().auth.getSession();
+      const token = await accessToken();
       let ok = 0, fail = 0;
       for (const file of files) {
         const fd = new FormData();
@@ -125,7 +125,7 @@ export default function ProductDetail({ params }: { params: { id: string } }) {
         try {
           const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/products/${params.id}/documents`, {
             method: "POST",
-            headers: { Authorization: `Bearer ${data.session?.access_token}` },
+            headers: { Authorization: `Bearer ${token}` },
             body: fd,
           });
           if (!res.ok) fail += 1;

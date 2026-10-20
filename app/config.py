@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     intake_secret: str = ""  # shared secret for POST /api/intake/email (empty = 503)
     founder_key: str = ""  # TraceFlow founder key for /founder + /api/founder/*.
     # Server-only, never NEXT_PUBLIC_. Empty = founder area disabled.
+    # Local-only demo mode: bypasses Supabase auth, R2, and Anthropic so the
+    # whole flow can be exercised without any external credentials. NEVER
+    # enable in production (it grants reviewer access to a fixed demo user).
+    demo_mode: bool = False
+    demo_storage_dir: str = "/srv/app/uploads"  # shared api/worker volume
     port: int = 8000
 
 

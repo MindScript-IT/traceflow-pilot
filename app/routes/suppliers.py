@@ -95,7 +95,7 @@ async def create_followup(supplier_id: str, body: dict, caller: Caller = Depends
                 "INSERT INTO supplier_followups (workspace_id, supplier_id, product_id, field_key,"
                 " status, recipient, subject, items)"
                 " VALUES (%s,%s,%s,%s,'draft',%s,%s,%s::jsonb) RETURNING id",
-                (caller.workspace_id, supplier_id, body.get("product_id"), body.get("field_key"),
+                (caller.workspace_id, supplier_id, product_id, str(field_key).strip(),
                  body.get("recipient"), body.get("subject"),
                  _json.dumps(body.get("items") or [])),
             )

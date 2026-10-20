@@ -43,19 +43,10 @@ def get_conn():
 
 
 def _fetch_document_bytes(storage_key: str) -> bytes:
-    """Download document bytes from R2. Lazy boto3 import so --help/tests
-    never require AWS deps."""
-    import boto3
+    """Download document bytes (R2, or the shared local volume in demo mode)."""
+    from app.services.storage import read_from_storage
 
-    client = boto3.client(
-        "s3",
-        endpoint_url=os.environ.get("R2_ENDPOINT") or None,
-        aws_access_key_id=os.environ.get("R2_ACCESS_KEY_ID") or None,
-        aws_secret_access_key=os.environ.get("R2_SECRET_ACCESS_KEY") or None,
-    )
-    bucket = os.environ.get("R2_BUCKET", "traceflow-docs")
-    obj = client.get_object(Bucket=bucket, Key=storage_key)
-    return obj["Body"].read()
+    return read_from_storage(storage_key)
 
 
 def _run_real_extraction(conn, job_id, document_id, workspace_id) -> None:
@@ -99,19 +90,23 @@ def _run_real_extraction(conn, job_id, document_id, workspace_id) -> None:
         ]
 
     with conn.cursor() as cur:
-        # Idempotency: exactly one set of field_values per document. If rows
-        # already exist (legacy BackgroundTasks double-path or a duplicate
-        # queue row), mark done without inserting a second set.
+        # Idempotency: a legacy BackgroundTasks double-path or duplicate queue
+        # row must not insert a second set of proposals. Only skip when the
+        # document actually finished; a crash mid-insert leaves status
+        # 'extracting'/'failed', and its partial proposals must be discarded
+        # before retrying (otherwise the passport view silently stays partial).
+        cur.execute(
+            "SELECT extraction_status FROM documents WHERE id = %s",
+            (document_id,),
+        )
+        drow = cur.fetchone()
+        doc_status = drow[0] if drow else None
         cur.execute(
             "SELECT COUNT(*) FROM field_values WHERE document_id = %s",
             (document_id,),
         )
-        if (cur.fetchone() or [0])[0] > 0:
-            cur.execute(
-                "UPDATE documents SET extraction_status = 'done', extraction_error = NULL"
-                " WHERE id = %s",
-                (document_id,),
-            )
+        has_values = (cur.fetchone() or [0])[0] > 0
+        if doc_status == "done" and has_values:
             cur.execute(
                 "UPDATE extraction_jobs SET status = 'done', error = NULL,"
                 " updated_at = now() WHERE id = %s",
@@ -119,6 +114,12 @@ def _run_real_extraction(conn, job_id, document_id, workspace_id) -> None:
             )
             conn.commit()
             return
+        # Remove proposals from a previous failed/partial attempt. Verified
+        # (accepted/corrected) rows belong to reviewers and are never deleted.
+        cur.execute(
+            "DELETE FROM field_values WHERE document_id = %s AND status = 'proposed'",
+            (document_id,),
+        )
 
     try:
         body = _fetch_document_bytes(storage_key)
@@ -159,15 +160,25 @@ def _run_real_extraction(conn, job_id, document_id, workspace_id) -> None:
                 ),
             )
         # Track A: full per-document transcription (every labeled value).
-        # Passport mapping above stays untouched. PDF only; failure-tolerant.
+        # Passport mapping above stays untouched. PDF and tables both get a
+        # full transcription; storage failures are logged, not swallowed
+        # silently by the store function.
         try:
+            from app.services.document_items import (
+                extract_full_items_pdf,
+                extract_full_items_table,
+                store_document_items,
+            )
             if ext == ".pdf":
-                from app.services.document_items import extract_full_items_pdf, store_document_items
                 full = asyncio.run(extract_full_items_pdf(body))
-                if full:
-                    stored = asyncio.run(store_document_items(conn, workspace_id, document_id, full))
-                    if getattr(stored, "truncated", False):
-                        truncated = True
+            elif table is not None:
+                full = asyncio.run(extract_full_items_table(table))
+            else:
+                full = []
+            if full:
+                stored = asyncio.run(store_document_items(conn, workspace_id, document_id, full))
+                if getattr(stored, "truncated", False):
+                    truncated = True
         except Exception as exc:  # noqa: BLE001
             print(f"document_items fallback: {type(exc).__name__}: {exc}")
         parties: list = []
@@ -198,8 +209,50 @@ def _run_real_extraction(conn, job_id, document_id, workspace_id) -> None:
         conn.commit()
 
 
+def recover_stale(conn) -> None:
+    """Requeue jobs whose worker died mid-run.
+
+    Without this a crash (or a container stop) leaves a job 'running' forever
+    and the document stuck in 'extracting', with no reviewer-visible error.
+    After three attempts the job is failed instead of retried in a loop.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE extraction_jobs SET status = 'failed',"
+            " error = COALESCE(error, 'worker stopped before finishing'),"
+            " updated_at = now()"
+            " WHERE status = 'running' AND attempts >= 3"
+            " AND updated_at < now() - interval '15 minutes'"
+            " RETURNING document_id"
+        )
+        failed_docs = [r[0] for r in cur.fetchall()]
+        for document_id in failed_docs:
+            cur.execute(
+                "UPDATE documents SET extraction_status = 'failed',"
+                " extraction_error = 'worker stopped before finishing' WHERE id = %s",
+                (document_id,),
+            )
+        cur.execute(
+            "UPDATE extraction_jobs SET status = 'queued', updated_at = now()"
+            " WHERE status = 'running'"
+            " AND updated_at < now() - interval '15 minutes'"
+            " RETURNING document_id"
+        )
+        requeued_docs = [r[0] for r in cur.fetchall()]
+        for document_id in requeued_docs:
+            cur.execute(
+                "UPDATE documents SET extraction_status = 'pending', extraction_error = NULL"
+                " WHERE id = %s",
+                (document_id,),
+            )
+        conn.commit()
+        if failed_docs or requeued_docs:
+            print(f"recovered stale jobs: requeued={len(requeued_docs)} failed={len(failed_docs)}")
+
+
 def process_one(conn) -> bool:
     """Claim a single queued job and transition it. Returns True if a job was handled."""
+    recover_stale(conn)
     with conn.cursor() as cur:
         cur.execute(CLAIM_SQL)
         row = cur.fetchone()
@@ -216,6 +269,10 @@ def process_one(conn) -> bool:
         try:
             _run_real_extraction(conn, job_id, document_id, workspace_id)
         except Exception as exc:  # noqa: BLE001
+            # The failed statement left the transaction aborted; without this
+            # rollback the UPDATE below itself fails (InFailedSqlTransaction)
+            # and the job/document stay 'running'/'extracting' forever.
+            conn.rollback()
             # Class + message (truncated): class-only errors are low-signal
             # for reviewers (audit C15). The r2-fetch prefix survives inside
             # the message instead of being collapsed to a bare token.

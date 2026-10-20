@@ -42,8 +42,12 @@ async def get_caller(
     use require_member / require_reviewer / require_admin.
     """
     if creds is None or not creds.credentials:
+        if settings.demo_mode:
+            return Caller(user_id="demo-reviewer", workspace_id=WORKSPACE_ID, role="reviewer")
         raise errors.session_missing()
     token = creds.credentials
+    if settings.demo_mode and token in ("demo", "demo-token"):
+        return Caller(user_id="demo-reviewer", workspace_id=WORKSPACE_ID, role="reviewer")
     if not settings.supabase_url or not settings.supabase_anon_key:
         raise errors.auth_unconfigured()
     import httpx

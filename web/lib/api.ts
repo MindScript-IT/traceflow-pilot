@@ -1,6 +1,19 @@
 import { createClient } from "@/utils/supabase/client";
 
 const API = process.env.NEXT_PUBLIC_API_URL!;
+/** Local demo: no Supabase/R2/Anthropic. The backend accepts Bearer demo. */
+export const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+
+/** Token for direct fetch() calls that upload files. */
+export async function accessToken(): Promise<string | null> {
+  if (DEMO_MODE) return "demo";
+  const { data } = await createClient().auth.getSession();
+  return data.session?.access_token ?? null;
+}
+/** Server components (SSR) must reach the API over the container network.
+ * NEXT_PUBLIC_* is baked for the browser, which is why the passport page
+ * used to fail with ECONNREFUSED inside Docker. */
+const SERVER_API = process.env.API_URL_INTERNAL || API;
 
 export function supabaseBrowser() {
   return createClient();
@@ -53,6 +66,12 @@ export async function apiAuthed(path: string, init: RequestInit = {}) {
     }
   };
 
+  if (DEMO_MODE) {
+    const res = await withTimeout((signal) => doFetch("demo", signal));
+    if (res.ok) return res.json();
+    await throwForStatus(res);
+  }
+
   let token = await getToken();
   if (!token) {
     // Session may be expired but refreshable — try once before giving up.
@@ -90,12 +109,93 @@ export async function apiAuthed(path: string, init: RequestInit = {}) {
   throw new Error("Request failed");
 }
 
+export type PublicPassport = {
+  product_name: string;
+  sku?: string | null;
+  manufacturer_name?: string | null;
+  category?: string | null;
+  published_at?: string | null;
+  fields: { field_key?: string; label: string; value: string; unit: string | null }[];
+};
+
 /** Public passport fetch: NO auth header, hits the isolated public route only. */
 export async function apiPublicPassport(slug: string) {
-  const res = await fetch(`${API}/api/public/passport/${slug}`, { cache: "no-store" });
+  const res = await fetch(`${SERVER_API}/api/public/passport/${slug}`, { cache: "no-store" });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Passport fetch failed: ${res.status}`);
-  return res.json() as Promise<{ product_name: string; fields: { label: string; value: string; unit: string | null }[] }>;
+  return res.json() as Promise<PublicPassport>;
+}
+
+/** Public signup pre-check: does this company code still have seats? No auth. */
+export async function apiCheckInvite(code: string) {
+  const res = await fetch(`${API}/api/invites/check`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    let message = `Invite check failed: ${res.status}`;
+    try {
+      const body = await res.json();
+      message = body?.detail?.message || body?.detail || message;
+    } catch {
+      // keep fallback
+    }
+    throw new Error(typeof message === "string" ? message : "Invalid invite code");
+  }
+  return res.json() as Promise<{ ok: boolean; seats_left: number | null }>;
+}
+
+export type FounderInvite = {
+  id: string;
+  role: string;
+  used_count: number;
+  max_uses: number | null;
+  expires_at: string | null;
+  created_at: string | null;
+  company_name: string;
+  contact_name: string;
+  contact_email: string;
+};
+
+/** Founder reporting, key-gated. The key lives in sessionStorage only. */
+export async function apiFounderList(founderKey: string) {
+  const res = await fetch(`${API}/api/founder/invites`, {
+    headers: { "X-Founder-Key": founderKey },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Founder list failed: ${res.status}`);
+  return res.json() as Promise<{ items: FounderInvite[] }>;
+}
+
+export type FounderMintInput = {
+  company_name: string;
+  contact_name?: string;
+  contact_email?: string;
+  seats?: number;
+  days?: number;
+  prefix?: string;
+};
+
+/** Mint one company code. Plaintext is returned exactly once. */
+export async function apiFounderMint(founderKey: string, input: FounderMintInput) {
+  const res = await fetch(`${API}/api/founder/invites`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Founder-Key": founderKey },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    let message = `Mint failed: ${res.status}`;
+    try {
+      const body = await res.json();
+      message = body?.detail?.message || body?.detail || message;
+    } catch {
+      // keep fallback
+    }
+    throw new Error(typeof message === "string" ? message : "Mint failed");
+  }
+  return res.json() as Promise<{ code: string; company: string; seats: number; days: number; expires_at: string | null }>;
 }
 
 /** Redeem result: workspace membership created for the signed-in user. */
@@ -107,6 +207,9 @@ export type InviteRedeemResult = {
 /** Redeem an invite code for the signed-in user (Supabase session token).
  * Mirrors apiAuthed: 15s timeout, 401 refresh-once, truncated errors. */
 export async function apiRedeemInvite(code: string): Promise<InviteRedeemResult> {
+  if (DEMO_MODE) {
+    return { workspace: "demo-workspace", role: "reviewer" } as InviteRedeemResult;
+  }
   const supabase = createClient();
 
   const getToken = async (): Promise<string | null> => {
@@ -152,6 +255,12 @@ export async function apiRedeemInvite(code: string): Promise<InviteRedeemResult>
       clearTimeout(timer);
     }
   };
+
+  if (DEMO_MODE) {
+    const res = await withTimeout((signal) => doFetch("demo", signal));
+    if (res.ok) return res.json();
+    await throwForStatus(res);
+  }
 
   let token = await getToken();
   if (!token) {

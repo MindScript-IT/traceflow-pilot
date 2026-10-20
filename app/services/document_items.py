@@ -5,13 +5,14 @@ stores EVERY labeled value the document states (e.g. every chemical
 substance + limit + unit + location) in document_items, shown on the
 per-document view.
 
-All entry points are failure-tolerant: any error yields [] and the caller
-(the passport path) continues unaffected.
+Extraction entry points are failure-tolerant ([] on any error) so the
+passport path continues unaffected. Storage is NOT: it runs in a savepoint
+and propagates errors, because silently committing half a transcription is
+worse than surfacing the failure to the worker.
 """
 from __future__ import annotations
 
 import base64
-import inspect
 
 FULL_ITEMS_SYSTEM = (
     "You are the evidence transcriber for TraceFlow AI. "
@@ -28,6 +29,23 @@ FULL_ITEMS_TASK = (
     "{label, value, unit|null, location} JSON array, verbatim, "
     "no invention, cap 200 items. "
     "Return ONLY the JSON array."
+)
+
+TABLE_ITEMS_SYSTEM = (
+    "You are the evidence transcriber for TraceFlow AI. "
+    "Transcribe EVERY labeled value and table row in the supplied parsed spreadsheet "
+    "as a JSON array of objects with exactly the keys label, value, unit, location. "
+    "Copy labels and values verbatim as printed. "
+    "Include a unit ONLY when the source prints one next to the value, else null. "
+    "Location must be the given sheet / cell coordinate. "
+    "Never invent, infer, or complete values. No prose, no markdown."
+)
+
+TABLE_ITEMS_TASK = (
+    "Transcribe EVERY labeled value and table row in this parsed spreadsheet as "
+    "{label, value, unit|null, location} JSON array. label = the row/column label "
+    "as printed, value = the cell value verbatim, location = the given sheet / cell. "
+    "Never invent, infer, or complete values. Cap 200 items. Return ONLY the JSON array."
 )
 
 MAX_ITEMS = 200
@@ -93,15 +111,21 @@ async def extract_full_items_pdf(body: bytes) -> list[dict]:
         from anthropic import AsyncAnthropic
 
         from app.config import settings
-        from app.services.extraction import parse_extraction_payload
+        from app.services.extraction import _create_with_retry, parse_extraction_payload
 
+        if settings.demo_mode:
+            from app.services.demo_extraction import full_pdf
+
+            return sanitize_doc_items(full_pdf(body))
         if not settings.anthropic_api_key:
             return []
         b64 = base64.standard_b64encode(body).decode("ascii")
         client = AsyncAnthropic(api_key=settings.anthropic_api_key)
-        resp = await client.messages.create(
+        resp = await _create_with_retry(
+            client,
             model=settings.anthropic_model,
             max_tokens=12000,
+            temperature=0,
             system=FULL_ITEMS_SYSTEM,
             messages=[
                 {
@@ -118,8 +142,6 @@ async def extract_full_items_pdf(body: bytes) -> list[dict]:
         )
         text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
         try:
-            from app.services.extraction import parse_extraction_payload
-
             return sanitize_doc_items(parse_extraction_payload(text))
         except Exception:
             # Truncated mid-array (max_tokens): salvage complete rows.
@@ -127,6 +149,72 @@ async def extract_full_items_pdf(body: bytes) -> list[dict]:
     except Exception as e:
         print(f"extract_full_items_pdf fallback: {type(e).__name__}")
         return []
+
+
+def table_to_doc_items(table: list[dict]) -> list[dict]:
+    """Deterministic fallback: every non-empty cell becomes one item.
+
+    Never hallucinates and never loses a cell when the model call fails. The
+    label is the coordinate so the reviewer can always trace the value.
+    """
+    from app.services.extraction import TruncatedList
+
+    items = TruncatedList()
+    for cell in table or []:
+        if not isinstance(cell, dict) or not cell.get("value"):
+            continue
+        if len(items) >= MAX_ITEMS:
+            items.truncated = True
+            break
+        sheet = str(cell.get("sheet") or "Table")
+        location = f"{sheet} / {cell.get('cell')}"
+        items.append({
+            "label": location,
+            "value": str(cell["value"]),
+            "unit": None,
+            "location": location,
+        })
+    return items
+
+
+async def extract_full_items_table(table: list[dict]) -> list[dict]:
+    """Transcribe a parsed XLSX/CSV table into labeled rows.
+
+    XLSX/CSV used to get no full transcription at all (only the 7-field
+    mapping), so all other numeric details were invisible. Fall back to the
+    deterministic cell-per-item view if the model is unavailable.
+    """
+    try:
+        import json as _json
+
+        from anthropic import AsyncAnthropic
+
+        from app.config import settings
+        from app.services.extraction import _create_with_retry, parse_extraction_payload
+
+        if settings.demo_mode or not settings.anthropic_api_key or not table:
+            return table_to_doc_items(table)
+        client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+        resp = await _create_with_retry(
+            client,
+            model=settings.anthropic_model,
+            max_tokens=12000,
+            temperature=0,
+            system=TABLE_ITEMS_SYSTEM,
+            messages=[{
+                "role": "user",
+                "content": [{"type": "text", "text": TABLE_ITEMS_TASK + "\n\n" + _json.dumps(table)}],
+            }],
+        )
+        text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+        try:
+            parsed = sanitize_doc_items(parse_extraction_payload(text))
+        except Exception:
+            parsed = sanitize_doc_items(parse_items_lenient(text))
+        return parsed or table_to_doc_items(table)
+    except Exception as e:
+        print(f"extract_full_items_table fallback: {type(e).__name__}")
+        return table_to_doc_items(table)
 
 
 def sanitize_doc_items(items: object) -> list[dict]:
@@ -178,23 +266,48 @@ def sanitize_doc_items(items: object) -> list[dict]:
 
 
 async def store_document_items(conn, workspace_id: str, document_id: str, items: list[dict]) -> list[dict]:
-    """Bulk INSERT sanitized items. Works with async and sync connections.
+    """Replace this document's transcription atomically.
 
-    Returns the inserted rows; [] when there is nothing to store or on any
-    error (caller continues).
+    Works with async and sync psycopg connections. Deletes the previous rows
+    first (idempotent retries), then inserts inside a savepoint so a failure
+    cannot commit half a transcription. Errors propagate to the caller.
     """
-    try:
-        clean = sanitize_doc_items(items)
-        if not clean:
-            return []
-        for it in clean:
-            res = conn.execute(
-                "INSERT INTO document_items (workspace_id, document_id, label, value, unit, location)"
-                " VALUES (%s,%s,%s,%s,%s,%s)",
-                (workspace_id, document_id, it["label"], it["value"], it["unit"], it["location"]),
-            )
-            if inspect.isawaitable(res):
-                await res
-        return clean
-    except Exception:
+    import psycopg
+
+    clean = sanitize_doc_items(items)
+    if not clean:
         return []
+
+    def _delete_and_insert_sync() -> None:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM document_items WHERE workspace_id = %s AND document_id = %s",
+                    (workspace_id, document_id),
+                )
+                for it in clean:
+                    cur.execute(
+                        "INSERT INTO document_items"
+                        " (workspace_id, document_id, label, value, unit, location)"
+                        " VALUES (%s,%s,%s,%s,%s,%s)",
+                        (workspace_id, document_id, it["label"], it["value"],
+                         it["unit"], it["location"]),
+                    )
+
+    if isinstance(conn, psycopg.AsyncConnection):
+        async with conn.transaction():
+            await conn.execute(
+                "DELETE FROM document_items WHERE workspace_id = %s AND document_id = %s",
+                (workspace_id, document_id),
+            )
+            for it in clean:
+                await conn.execute(
+                    "INSERT INTO document_items"
+                    " (workspace_id, document_id, label, value, unit, location)"
+                    " VALUES (%s,%s,%s,%s,%s,%s)",
+                    (workspace_id, document_id, it["label"], it["value"],
+                     it["unit"], it["location"]),
+                )
+    else:
+        _delete_and_insert_sync()
+    return clean

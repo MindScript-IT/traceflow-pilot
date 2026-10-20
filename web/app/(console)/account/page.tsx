@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { KeyRound, PenLine } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
+import { DEMO_MODE } from "@/lib/api";
 import { loadSignature, saveSignature, type EmailSignature } from "@/lib/fieldMeta";
 import { useTranslations } from "next-intl";
 
@@ -43,6 +44,15 @@ export default function AccountPage() {
       <div className="animate-rise max-w-xl">
         <p className="font-mono text-xs uppercase tracking-[0.14em] text-muted">{t("headerBadge")}</p>
         <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight">{t("title")}</h1>
+        {DEMO_MODE ? (
+          <div className="mt-6 rounded-xl2 border border-moss/30 bg-moss/5 p-6">
+            <h2 className="font-display text-lg font-semibold">Demo mode</h2>
+            <p className="mt-2 text-sm text-inksoft">
+              Password changes need Supabase and are disabled in the local demo.
+              The email signature below is stored in your browser and still works.
+            </p>
+          </div>
+        ) : (
         <form onSubmit={change} className="mt-6 space-y-4 rounded-xl2 border border-line bg-white/70 p-6 shadow-card">
           <div className="flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-parchment text-ink">
@@ -87,6 +97,7 @@ export default function AccountPage() {
           </button>
           {msg && <p className={`text-sm font-medium ${isError ? "text-brick" : "text-moss-deep"}`}>{msg}</p>}
         </form>
+        )}
         <SignatureForm />
       </div>
     </>

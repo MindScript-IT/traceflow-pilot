@@ -10,7 +10,7 @@ DO $$
 BEGIN
   IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'traceflow_app') THEN
     REVOKE ALL ON TABLE audit_log FROM traceflow_app;
-    GRANT SELECT, INSERT, UPDATE ON client_requests TO CURRENT_USER;
+    GRANT SELECT, INSERT ON TABLE audit_log TO traceflow_app;
   END IF;
 END
 $$;

@@ -19,7 +19,7 @@ async def ask(body: dict, caller: Caller = Depends(require_member)):
         raise errors.missing_field("a question")
     if len(question) > 2000:
         raise errors.too_long("question", "2000 characters")
-    if not settings.anthropic_api_key:
+    if not settings.demo_mode and not settings.anthropic_api_key:
         raise errors.ai_unconfigured()
     pool = await get_pool()
     async with pool.connection() as conn:

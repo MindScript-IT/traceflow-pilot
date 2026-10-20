@@ -4,6 +4,7 @@ import json
 
 import nanoid
 from fastapi import APIRouter, Depends, Form, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from app import errors
 
@@ -24,6 +25,7 @@ from app.services.extraction import (
 from app.services.storage import (
     check_size,
     classify_file,
+    delete_from_storage,
     new_storage_key,
     upload_to_storage,
     verify_file_content,
@@ -94,6 +96,8 @@ async def link_document(document_id: str, body: dict, caller: Caller = Depends(r
     Used by the one-click 'detected party → supplier' flow and manual linking."""
     uuid_or_404(document_id, "That document")
     supplier_id = body.get("supplier_id")
+    if supplier_id is not None:
+        uuid_or_404(str(supplier_id), "That supplier")
     pool = await get_pool()
     async with pool.connection() as conn:
         await ensure_workspace_exists(conn, caller.workspace_id)
@@ -186,16 +190,26 @@ async def _run_extraction(document_id: str, product_id: str, ext: str, body: byt
         truncated = bool(getattr(table, "truncated", False))
         await mark("done", len(clean), truncated=truncated)
         # Track A: full per-document transcription (every labeled value).
-        # Passport mapping above stays untouched. PDF only; failure-tolerant.
+        # Passport mapping above stays untouched. PDF and tables both get a
+        # full transcription; a storage failure is logged without killing the
+        # already-extracted passport values.
         try:
+            from app.services.document_items import (
+                extract_full_items_pdf,
+                extract_full_items_table,
+                store_document_items,
+            )
             if ext == ".pdf":
-                from app.services.document_items import extract_full_items_pdf, store_document_items
                 full = await extract_full_items_pdf(body)
-                if full:
-                    stored = await store_document_items(conn, workspace_id, document_id, full)
-                    if getattr(stored, "truncated", False):
-                        truncated = True
-                        await mark("done", len(clean), truncated=True)
+            elif table is not None:
+                full = await extract_full_items_table(table)
+            else:
+                full = []
+            if full:
+                stored = await store_document_items(conn, workspace_id, document_id, full)
+                if getattr(stored, "truncated", False):
+                    truncated = True
+                    await mark("done", len(clean), truncated=True)
         except Exception as e:
             print(f"document_items fallback: {type(e).__name__}: {e}")
         # Who is on this document? Stored for one-click supplier linking.
@@ -205,26 +219,6 @@ async def _run_extraction(document_id: str, product_id: str, ext: str, body: byt
             if getattr(parties, "truncated", False) and not truncated:
                 truncated = True
                 await mark("done", len(clean), truncated=True)
-            if parties:
-                import json as _json
-                await conn.execute(
-                    "UPDATE documents SET detected_parties = %s::jsonb WHERE id = %s",
-                    (_json.dumps(parties), document_id),
-                )
-        # Track A: full per-document transcription (every labeled value).
-        # Passport mapping above stays untouched. PDF only; failure-tolerant.
-        try:
-            if ext == ".pdf":
-                from app.services.document_items import extract_full_items_pdf, store_document_items
-                full = await extract_full_items_pdf(body)
-                if full:
-                    await store_document_items(conn, workspace_id, document_id, full)
-        except Exception as e:
-            print(f"document_items fallback: {type(e).__name__}: {e}")
-        # Who is on this document? Stored for one-click supplier linking.
-        # Failure-tolerant by design: [] when detection fails.
-        if ext == ".pdf":
-            parties = await extract_parties_pdf(body)
             if parties:
                 import json as _json
                 await conn.execute(
@@ -276,25 +270,42 @@ async def upload_document(
             if await cur.fetchone() is None:
                 raise errors.not_found("That supplier")
         key = new_storage_key(caller.workspace_id, product_id, file.filename or "upload")
-        upload_to_storage(key, body, content_types[ext])
-        cur = await conn.execute(
-            "INSERT INTO documents (workspace_id, product_id, supplier_id, filename, storage_key,"
-            " extraction_status, extracted_count)"
-            " VALUES (%s,%s,%s,%s,%s,'extracting',0) RETURNING id",
-            (caller.workspace_id, product_id, supplier_id, file.filename, key),
-        )
-        doc_id = str((await cur.fetchone())[0])
         try:
-            await conn.execute(
-                "INSERT INTO extraction_jobs (workspace_id, document_id, status)"
-                " VALUES (%s,%s,'queued')",
-                (caller.workspace_id, doc_id),
+            # boto3 is synchronous; never block the event loop on R2 I/O.
+            await run_in_threadpool(upload_to_storage, key, body, content_types[ext])
+        except Exception as exc:  # noqa: BLE001
+            print(f"storage upload failed: {type(exc).__name__}: {exc}")
+            raise errors.storage_unavailable() from exc
+        try:
+            cur = await conn.execute(
+                "INSERT INTO documents (workspace_id, product_id, supplier_id, filename, storage_key,"
+                " extraction_status, extracted_count)"
+                " VALUES (%s,%s,%s,%s,%s,'extracting',0) RETURNING id",
+                (caller.workspace_id, product_id, supplier_id, file.filename, key),
             )
-        except Exception as e:
-            print(f"extraction_jobs insert fallback: {type(e).__name__}: {e}")
-        await conn.execute(
-            "INSERT INTO audit_log (workspace_id, actor, action, entity_type, entity_id, detail)"
-            " VALUES (%s,%s,'document.uploaded','document',%s,%s::jsonb)",
-            (caller.workspace_id, caller.user_id, doc_id, json.dumps({"filename": file.filename or ""})),
-        )
+            doc_id = str((await cur.fetchone())[0])
+            # If the job cannot be queued the document must not be left in
+            # 'extracting' forever: fail the request (the transaction rolls back).
+            try:
+                await conn.execute(
+                    "INSERT INTO extraction_jobs (workspace_id, document_id, status)"
+                    " VALUES (%s,%s,'queued')",
+                    (caller.workspace_id, doc_id),
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"extraction_jobs insert failed: {type(exc).__name__}: {exc}")
+                raise errors.queue_unavailable() from exc
+            await conn.execute(
+                "INSERT INTO audit_log (workspace_id, actor, action, entity_type, entity_id, detail)"
+                " VALUES (%s,%s,'document.uploaded','document',%s,%s::jsonb)",
+                (caller.workspace_id, caller.user_id, doc_id, json.dumps({"filename": file.filename or ""})),
+            )
+        except Exception:
+            # The connection context rolls back; remove the object that would
+            # otherwise be orphaned because no documents row points at it.
+            try:
+                await run_in_threadpool(delete_from_storage, key)
+            except Exception as cleanup_exc:  # noqa: BLE001
+                print(f"storage cleanup failed: {type(cleanup_exc).__name__}: {cleanup_exc}")
+            raise
     return {"document_id": doc_id, "status": "extracting"}
