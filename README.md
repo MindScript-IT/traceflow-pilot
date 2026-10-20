@@ -2,6 +2,65 @@
 
 Pilot backend for TraceFlow AI. See repo root `migrations/` and `.env.example`.
 
+## Pilot hardening: what was fixed
+
+A senior review of the pilot (passport mode + document upload/extraction) is
+recorded in [`docs/PILOT_REVIEW.md`](docs/PILOT_REVIEW.md), with severity,
+file references, verification commands and residual risks. Summary:
+
+**Security and access**
+- Removed the Next.js routes that talked to Postgres directly (invites,
+  founder, auth helpers); all writes now go through the FastAPI backend.
+- Founder page uses the server-only `X-Founder-Key`; no key is shipped to
+  the browser bundle.
+- Invite redemption is seat-safe: re-redeeming as the same user is a no-op
+  and never burns another seat.
+- Uniqueness races now return `409 conflict` instead of a 500.
+
+**Data integrity**
+- Exactly one verified value per product/field is enforced in the routes
+  *and* by a partial unique index (`019_one_verified_per_field.sql`).
+  Accept/correct/resolve/bulk-accept supersede the previous verified row.
+- Public passports expose verified evidence only, and verified
+  `product_name`/`sku` override the product columns.
+- Extraction normalizes `p. 3` / `pag. 4-5` / `pagina 7` to `Page 3` /
+  `Page 4-5`, handles UTF-8/Windows-1252 CSVs, semicolon/tab/pipe
+  delimiters, integral XLSX floats, duplicate items and table caps.
+- Uploads/transcripts keep every labeled value (PDF and spreadsheets), not
+  just the 7 passport fields; empty/failed extractions are retried cleanly.
+
+**Reliability**
+- Failed documents have a reviewer-visible **Retry** action
+  (`POST /api/documents/{id}/retry`) with a `not_retryable` guard.
+- The worker recovers stale `running` jobs, rolls back before writing a
+  failure, and only skips a document when it is genuinely `done` with
+  values (partial proposals are deleted and re-extracted).
+- R2/queue failures map to `502 storage_unavailable` /
+  `503 queue_unavailable`; a failed DB write removes the orphan object.
+- Anthropic 429/5xx/network errors retry with backoff; extraction is
+  deterministic (`temperature=0`).
+
+**Passport and deployment**
+- Server-side rendering reaches the API over `API_URL_INTERNAL`, so the
+  public passport works inside Docker.
+- Localized passport metadata + a branded, localized 404 page.
+- Web and worker healthchecks fixed; app-role grants and append-only audit
+  triggers added (`018_app_role_grants.sql`).
+- `.env.example` now ships the seeded workspace UUID, clean values, and
+  documented Company B variables.
+
+**Local demo mode** (off by default, never for production)
+- `DEMO_MODE=true` / `NEXT_PUBLIC_DEMO_MODE=true` bypasses Supabase, R2 and
+  Anthropic so the full upload -> worker -> review -> publish -> passport
+  flow can be tested without credentials. See
+  [`docs/LOCAL_TESTING.md`](docs/LOCAL_TESTING.md) and the sample
+  declarations in `samples/`.
+
+**Verification**: `pytest -q` -> 127 passed, 2 skipped; `docker compose ps`
+all healthy; CSV, XLSX and PDF uploads exercised end-to-end through the
+worker, review, publish and public passport.
+
+
 ## Founder clone-and-run on Windows (one command, PowerShell)
 
 ```powershell
