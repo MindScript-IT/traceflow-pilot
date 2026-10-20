@@ -317,6 +317,10 @@ async def _claude_json_messages(messages: list[dict]) -> list[dict]:
 
 
 async def extract_pdf_native(pdf_bytes: bytes, field_defs: list[dict]) -> list[dict]:
+    if settings.demo_mode:
+        from app.services.demo_extraction import map_pdf
+
+        return map_pdf(pdf_bytes, field_defs)
     allowed = ", ".join(f"{d['field_key']} ({d['label']})" for d in field_defs)
     b64 = base64.standard_b64encode(pdf_bytes).decode("ascii")
     return await _claude_json_messages(
@@ -336,6 +340,10 @@ async def extract_pdf_native(pdf_bytes: bytes, field_defs: list[dict]) -> list[d
 
 
 async def extract_table_mapped(table: list[dict], field_defs: list[dict]) -> list[dict]:
+    if settings.demo_mode:
+        from app.services.demo_extraction import map_table
+
+        return map_table(table, field_defs)
     return await _claude_json_messages(
         [{"role": "user", "content": [{"type": "text", "text": build_mapping_prompt(field_defs, table)}]}]
     )
@@ -375,6 +383,10 @@ def cap_parties(data: object) -> TruncatedList:
 
 async def extract_parties_pdf(pdf_bytes: bytes) -> list[dict]:
     """Who is on this document? Failure-tolerant: [] on any problem."""
+    if settings.demo_mode:
+        from app.services.demo_extraction import parties_pdf
+
+        return parties_pdf(pdf_bytes)
     try:
         client = AsyncAnthropic(api_key=settings.anthropic_api_key)
         b64 = base64.standard_b64encode(pdf_bytes).decode("ascii")

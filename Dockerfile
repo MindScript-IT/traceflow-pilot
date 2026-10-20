@@ -15,7 +15,9 @@ COPY migrations ./migrations
 COPY scripts ./scripts
 
 # Non-root pilot user
-RUN useradd -m -u 10001 appuser && chown -R appuser /srv/app
+RUN useradd -m -u 10001 appuser \
+    && mkdir -p /srv/app/uploads \
+    && chown -R appuser /srv/app
 USER appuser
 
 EXPOSE 8000

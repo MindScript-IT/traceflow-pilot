@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { clsx } from "clsx";
 import { Fingerprint } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
-import { apiCheckInvite, apiRedeemInvite, type InviteRedeemResult } from "@/lib/api";
+import { apiCheckInvite, apiRedeemInvite, DEMO_MODE, type InviteRedeemResult } from "@/lib/api";
 
 /** Reviewer auth: email + password, self-service.
  * Signup is gated by a pilot invite code (NEXT_PUBLIC_PILOT_INVITE_CODE).
@@ -26,6 +26,7 @@ export default function LoginPage() {
   const [redeemed, setRedeemed] = useState<InviteRedeemResult | null>(null);
 
   useEffect(() => {
+    if (DEMO_MODE) return;
     let live = true;
     createClient().auth.getSession().then(({ data }) => {
       if (live && data.session) setAuthed(true);
@@ -106,6 +107,22 @@ export default function LoginPage() {
           <Fingerprint size={20} />
         </span>
         <h1 className="mt-5 font-display text-3xl font-semibold tracking-tight">Reviewer access</h1>
+        {DEMO_MODE && (
+          <div className="mt-5 rounded-xl border border-moss/30 bg-moss/5 p-4">
+            <p className="text-sm font-semibold text-ink">Local demo mode</p>
+            <p className="mt-1 text-sm text-inksoft">
+              Supabase, R2 and Anthropic are bypassed. Uploads use a local volume
+              and extraction is deterministic, so no credentials are needed.
+            </p>
+            <button
+              type="button"
+              onClick={() => { router.push("/products"); router.refresh(); }}
+              className="mt-3 min-h-[44px] w-full rounded-xl bg-ink font-semibold text-paper transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99]"
+            >
+              Open demo workspace
+            </button>
+          </div>
+        )}
         <div className="mt-5 grid grid-cols-2 gap-1 rounded-xl bg-parchment p-1">
           {(["in", "up"] as const).map((t) => (
             <button
@@ -145,7 +162,7 @@ export default function LoginPage() {
                 value={code} onChange={(e) => setCode(e.target.value)} className={inputCls} />
             </div>
           )}
-          <button type="submit" disabled={busy}
+          <button type="submit" disabled={busy || DEMO_MODE}
             className="min-h-[44px] w-full rounded-xl bg-ink font-semibold text-paper transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50">
             {busy ? "Please wait…" : tab === "in" ? "Sign in" : "Create account & enter"}
           </button>
@@ -174,7 +191,9 @@ export default function LoginPage() {
           </form>
         )}
         <p className="mt-5 text-center text-xs text-muted">
-          Password change anytime under Account. No emails are ever sent by this app.
+          {DEMO_MODE
+            ? "Demo mode only. Run without DEMO_MODE for real Supabase authentication."
+            : "Password change anytime under Account. No emails are ever sent by this app."}
         </p>
       </div>
     </main>

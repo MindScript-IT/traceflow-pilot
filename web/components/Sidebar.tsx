@@ -6,7 +6,7 @@ import {
   Bell, Bot, Fingerprint, Inbox, LayoutDashboard, LogOut, Mailbox, PanelLeftClose, ScrollText, Truck, UserRound,
 } from "lucide-react";
 import { clsx } from "clsx";
-import { apiAuthed } from "@/lib/api";
+import { apiAuthed, DEMO_MODE } from "@/lib/api";
 import { createClient } from "@/utils/supabase/client";
 import { useTranslations } from "next-intl";
 import { NotificationsBell } from "@/components/NotificationsBell";
@@ -47,11 +47,15 @@ export function Sidebar() {
 
   useEffect(() => {
     apiAuthed("/api/review-queue").then((d) => setQueue(d.count)).catch(() => { });
+    if (DEMO_MODE) {
+      setEmail("demo@traceflow.local");
+      return;
+    }
     createClient().auth.getUser().then(({ data }: { data: { user: { email?: string } | null } }) => setEmail(data.user?.email ?? ""));
   }, [path]);
 
   async function signOut() {
-    await createClient().auth.signOut();
+    if (!DEMO_MODE) await createClient().auth.signOut();
     router.push("/login");
   }
 

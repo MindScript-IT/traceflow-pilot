@@ -113,6 +113,10 @@ async def extract_full_items_pdf(body: bytes) -> list[dict]:
         from app.config import settings
         from app.services.extraction import _create_with_retry, parse_extraction_payload
 
+        if settings.demo_mode:
+            from app.services.demo_extraction import full_pdf
+
+            return sanitize_doc_items(full_pdf(body))
         if not settings.anthropic_api_key:
             return []
         b64 = base64.standard_b64encode(body).decode("ascii")
@@ -188,7 +192,7 @@ async def extract_full_items_table(table: list[dict]) -> list[dict]:
         from app.config import settings
         from app.services.extraction import _create_with_retry, parse_extraction_payload
 
-        if not settings.anthropic_api_key or not table:
+        if settings.demo_mode or not settings.anthropic_api_key or not table:
             return table_to_doc_items(table)
         client = AsyncAnthropic(api_key=settings.anthropic_api_key)
         resp = await _create_with_retry(

@@ -101,9 +101,40 @@ def _r2_client():
     )
 
 
+def _local_path(key: str) -> str:
+    """Resolve a storage key inside DEMO_STORAGE_DIR (no traversal)."""
+    root = os.path.abspath(settings.demo_storage_dir or "/srv/app/uploads")
+    path = os.path.abspath(os.path.join(root, key))
+    if path != root and not path.startswith(root + os.sep):
+        raise ValueError("storage key escapes the demo storage directory")
+    return path
+
+
 def upload_to_storage(key: str, body: bytes, content_type: str) -> None:
+    """R2 in production; a shared local directory in demo mode.
+
+    Demo mode runs the same upload -> queue -> worker path, only the bytes
+    live on an api/worker shared volume instead of Cloudflare. This is what
+    lets the full flow be tested with placeholder R2 credentials.
+    """
+    if settings.demo_mode:
+        path = _local_path(key)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as fh:
+            fh.write(body)
+        return
     client = _r2_client()
     client.put_object(Bucket=settings.r2_bucket, Key=key, Body=body, ContentType=content_type)
+
+
+def read_from_storage(key: str) -> bytes:
+    """Read document bytes back (demo local volume or R2)."""
+    if settings.demo_mode:
+        with open(_local_path(key), "rb") as fh:
+            return fh.read()
+    client = _r2_client()
+    obj = client.get_object(Bucket=settings.r2_bucket, Key=key)
+    return obj["Body"].read()
 
 
 def delete_from_storage(key: str) -> None:
@@ -112,6 +143,12 @@ def delete_from_storage(key: str) -> None:
     Without this, a failed documents/extraction_jobs insert leaves an orphan
     object in the bucket (and the reviewer cannot see or retry it).
     """
+    if settings.demo_mode:
+        try:
+            os.unlink(_local_path(key))
+        except FileNotFoundError:
+            pass
+        return
     client = _r2_client()
     client.delete_object(Bucket=settings.r2_bucket, Key=key)
 

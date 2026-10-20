@@ -1,6 +1,15 @@
 import { createClient } from "@/utils/supabase/client";
 
 const API = process.env.NEXT_PUBLIC_API_URL!;
+/** Local demo: no Supabase/R2/Anthropic. The backend accepts Bearer demo. */
+export const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+
+/** Token for direct fetch() calls that upload files. */
+export async function accessToken(): Promise<string | null> {
+  if (DEMO_MODE) return "demo";
+  const { data } = await createClient().auth.getSession();
+  return data.session?.access_token ?? null;
+}
 /** Server components (SSR) must reach the API over the container network.
  * NEXT_PUBLIC_* is baked for the browser, which is why the passport page
  * used to fail with ECONNREFUSED inside Docker. */
@@ -56,6 +65,12 @@ export async function apiAuthed(path: string, init: RequestInit = {}) {
       clearTimeout(timer);
     }
   };
+
+  if (DEMO_MODE) {
+    const res = await withTimeout((signal) => doFetch("demo", signal));
+    if (res.ok) return res.json();
+    await throwForStatus(res);
+  }
 
   let token = await getToken();
   if (!token) {
@@ -192,6 +207,9 @@ export type InviteRedeemResult = {
 /** Redeem an invite code for the signed-in user (Supabase session token).
  * Mirrors apiAuthed: 15s timeout, 401 refresh-once, truncated errors. */
 export async function apiRedeemInvite(code: string): Promise<InviteRedeemResult> {
+  if (DEMO_MODE) {
+    return { workspace: "demo-workspace", role: "reviewer" } as InviteRedeemResult;
+  }
   const supabase = createClient();
 
   const getToken = async (): Promise<string | null> => {
@@ -237,6 +255,12 @@ export async function apiRedeemInvite(code: string): Promise<InviteRedeemResult>
       clearTimeout(timer);
     }
   };
+
+  if (DEMO_MODE) {
+    const res = await withTimeout((signal) => doFetch("demo", signal));
+    if (res.ok) return res.json();
+    await throwForStatus(res);
+  }
 
   let token = await getToken();
   if (!token) {

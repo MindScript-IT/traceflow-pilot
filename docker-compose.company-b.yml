@@ -36,6 +36,8 @@ services:
     environment:
       DATABASE_URL: postgresql://traceflow_app:${DB_APP_PASSWORD_B}@db:5432/traceflow_b
       PORT: 8002
+    volumes:
+      - uploads_b:/srv/app/uploads
     ports:
       - "${PORT_B:-8002}:8002"
     healthcheck:
@@ -54,6 +56,8 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://traceflow_app:${DB_APP_PASSWORD_B}@db:5432/traceflow_b
+    volumes:
+      - uploads_b:/srv/app/uploads
     command: python scripts/worker.py
     # The image healthcheck probes the API port; the worker has no HTTP server.
     healthcheck:
@@ -68,6 +72,7 @@ services:
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-https://xyz.supabase.co}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-change-me}
         NEXT_PUBLIC_PILOT_INVITE_CODE: ${NEXT_PUBLIC_PILOT_INVITE_CODE:-change-me}
+        NEXT_PUBLIC_DEMO_MODE: ${NEXT_PUBLIC_DEMO_MODE:-false}
     depends_on:
       api:
         condition: service_started
@@ -82,3 +87,4 @@ services:
 
 volumes:
   pgdata_b:
+  uploads_b:

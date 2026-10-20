@@ -70,6 +70,13 @@ remaining gaps are listed under **Residual risks**.
 - Two accepted rows for the same field now fail at the DB with
   `field_values_one_verified_per_field`.
 
+A local `DEMO_MODE` (see `docs/LOCAL_TESTING.md`) also exercised the complete
+path without external accounts: CSV and PDF upload -> `extraction_jobs` ->
+worker -> proposed `field_values` -> accept -> publish -> public passport,
+including `document_items` transcription and `detected_parties`. Demo
+extraction is deterministic (label/value heuristics + pypdf), so this proves
+the wiring, not Anthropic output quality.
+
 Not executed: a live Anthropic extraction and a real R2 round-trip. The
 local `.env` contains placeholder credentials, so the LLM/table branches
 were validated with unit tests and deterministic fixtures, not a live call.

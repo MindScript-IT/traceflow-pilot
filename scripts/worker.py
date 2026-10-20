@@ -43,19 +43,10 @@ def get_conn():
 
 
 def _fetch_document_bytes(storage_key: str) -> bytes:
-    """Download document bytes from R2. Lazy boto3 import so --help/tests
-    never require AWS deps."""
-    import boto3
+    """Download document bytes (R2, or the shared local volume in demo mode)."""
+    from app.services.storage import read_from_storage
 
-    client = boto3.client(
-        "s3",
-        endpoint_url=os.environ.get("R2_ENDPOINT") or None,
-        aws_access_key_id=os.environ.get("R2_ACCESS_KEY_ID") or None,
-        aws_secret_access_key=os.environ.get("R2_SECRET_ACCESS_KEY") or None,
-    )
-    bucket = os.environ.get("R2_BUCKET", "traceflow-docs")
-    obj = client.get_object(Bucket=bucket, Key=storage_key)
-    return obj["Body"].read()
+    return read_from_storage(storage_key)
 
 
 def _run_real_extraction(conn, job_id, document_id, workspace_id) -> None:

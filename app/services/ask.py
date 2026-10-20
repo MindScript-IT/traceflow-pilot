@@ -86,6 +86,10 @@ async def build_snapshot(conn, workspace_id: str, max_values: int = 300) -> str:
 
 
 async def ask_workspace(question: str, snapshot: str) -> str:
+    if settings.demo_mode:
+        from app.services.demo_extraction import ask as demo_ask
+
+        return demo_ask(question, snapshot)
     client = AsyncAnthropic(api_key=settings.anthropic_api_key)
     resp = await client.messages.create(
         model=settings.anthropic_model,

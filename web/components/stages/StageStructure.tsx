@@ -5,7 +5,7 @@ import { ArrowRight, Building2, FileText, Plus } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useRequest } from "@/components/RequestWorkspace";
 import { UploadDropzone } from "@/components/UploadDropzone";
-import { apiAuthed, supabaseBrowser } from "@/lib/api";
+import { accessToken, apiAuthed } from "@/lib/api";
 
 /** Stage 02 — load sources, extraction proposes values for review. */
 export function StageStructure() {
@@ -26,7 +26,7 @@ export function StageStructure() {
   async function upload(files: File[]) {
     setBusy(true); setError(""); setNotice("");
     try {
-      const { data: s } = await supabaseBrowser().auth.getSession();
+      const token = await accessToken();
       let ok = 0;
       const failures: string[] = [];
       for (const file of files) {
@@ -35,7 +35,7 @@ export function StageStructure() {
         if (uploadSupplier) fd.append("supplier_id", uploadSupplier);
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/products/${dossier.product.id}/documents`, {
           method: "POST",
-          headers: { Authorization: `Bearer ${s.session?.access_token}` },
+          headers: { Authorization: `Bearer ${token}` },
           body: fd,
         });
         if (res.ok) {
